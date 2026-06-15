@@ -1,16 +1,37 @@
 {
   "name": "codex-trace",
   "version": "0.1.0",
-  "private": true,
+  "description": "Local web UI for inspecting Codex session traces, tool calls, and subagents.",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "codex-trace": "./src/cli.ts"
+    "codex-trace": "bin/codex-trace.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "serve": "node --experimental-strip-types src/cli.ts serve",
     "reindex": "node --experimental-strip-types src/cli.ts reindex",
-    "doctor": "node --experimental-strip-types src/cli.ts doctor"
+    "doctor": "node --experimental-strip-types src/cli.ts doctor",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "keywords": [
+    "codex",
+    "trace",
+    "jsonl",
+    "sessions",
+    "observability",
+    "cli",
+    "local-first"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22.11.0"

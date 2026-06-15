@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>codex-trace</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark">
+        <h1>codex-trace</h1>
+        <p>Local session observability</p>
+      </div>
+      <div class="actions">
+        <span id="status" class="status-pill">Connecting...</span>
+        <input id="search" placeholder="Search sessions">
+        <button id="reindex">Reindex</button>
+      </div>
+    </header>
+    <main class="layout">
+      <section id="sessions-page" class="sessions-page">
+        <div class="page-hero">
+          <p class="eyebrow">Session Gallery</p>
+          <h2>Local traces.</h2>
+          <p>Messages, tools, subagents, raw JSON.</p>
+        </div>
+        <div id="sessions"></div>
+      </section>
+      <section id="detail-page" class="detail-page" hidden>
+        <div class="detail-head">
+          <button id="back-to-sessions" class="secondary">All sessions</button>
+          <div class="tabs">
+            <button data-tab="timeline" class="active">Timeline</button>
+            <button data-tab="tools">Tools</button>
+            <button data-tab="subagents">Subagents</button>
+            <button data-tab="live">Live</button>
+          </div>
+        </div>
+        <div id="panel"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

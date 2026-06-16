@@ -14,6 +14,7 @@ test("UI separates session list route from session detail route", async () => {
   assert.match(js, /location\.hash\.match\(\/\^#\\\/sessions\\\//);
   assert.doesNotMatch(js, /if \(!selected && sessions\[0\]\) selectSession/);
   assert.match(css, /grid-template-columns: repeat\(auto-fill, minmax\(320px, 1fr\)\)/);
+  assert.match(css, /\[hidden\]\s*\{\s*display: none !important;\s*\}/);
 });
 
 test("opening a child session resets detail view to timeline output", async () => {

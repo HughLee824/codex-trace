@@ -4,6 +4,10 @@
   "description": "Local web UI for inspecting Codex session traces, tool calls, and subagents.",
   "license": "Apache-2.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HughLee824/codex-trace.git"
+  },
   "bin": {
     "codex-trace": "bin/codex-trace.js"
   },

@@ -156,8 +156,10 @@ h1 {
 }
 
 .sessions-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   max-width: 1440px;
-  padding: 56px 24px 80px;
+  padding: 40px 24px 24px;
 }
 
 .detail-page {
@@ -165,7 +167,7 @@ h1 {
 }
 
 .page-hero {
-  margin: 0 auto 36px;
+  margin: 0 auto 28px;
   max-width: 980px;
   text-align: center;
 }
@@ -195,6 +197,99 @@ h1 {
   line-height: 1.35;
   margin: 12px auto 0;
   max-width: 720px;
+}
+
+.gallery-shell {
+  align-items: start;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.project-panel {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+
+.project-panel__head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.project-panel h3 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+}
+
+.project-list {
+  display: grid;
+  gap: 6px;
+}
+
+.project-item {
+  align-items: center;
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.project-item:hover,
+.project-item.active {
+  background: var(--parchment);
+  border-color: var(--soft-line);
+}
+
+.project-item.active {
+  color: var(--primary);
+}
+
+.project-item strong,
+.project-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.project-item small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.project-item em {
+  background: var(--pearl);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1;
+  min-width: 28px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.session-results {
+  min-width: 0;
 }
 
 #sessions {
@@ -565,6 +660,8 @@ pre {
 
 @media (max-width: 980px) {
   .sessions-page {
+    display: block;
+    min-height: 0;
     padding: 40px 16px 64px;
   }
 
@@ -575,6 +672,31 @@ pre {
   .page-hero h2,
   .trace-hero h2 {
     font-size: 34px;
+  }
+
+  .gallery-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .project-panel {
+    position: static;
+  }
+
+  .project-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    padding-right: 0;
+  }
+
+  .session-results {
+    min-width: 0;
+  }
+
+  .project-item {
+    flex: 0 0 220px;
   }
 
   #sessions {

@@ -1,9 +1,13 @@
 let sessions = [];
 let selected = null;
+let selectedProject = "all";
 let activeTab = "timeline";
 const liveEvents = [];
 
 const sessionsEl = document.getElementById("sessions");
+const projectsEl = document.getElementById("projects");
+const sessionsHeadingEl = document.getElementById("sessions-heading");
+const sessionsCountEl = document.getElementById("sessions-count");
 const panelEl = document.getElementById("panel");
 const statusEl = document.getElementById("status");
 const searchEl = document.getElementById("search");
@@ -34,26 +38,100 @@ window.addEventListener("hashchange", renderRoute);
 
 async function loadSessions(q = "") {
   sessions = await fetchJson(`/api/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  ensureSelectedProjectExists();
+  renderProjects();
   renderSessions();
   statusEl.textContent = `${sessions.length} sessions indexed`;
   renderRoute();
 }
 
 function renderSessions() {
-  sessionsEl.innerHTML = sessions.map((session) => `
+  const visibleSessions = filterSessionsByProject(getGallerySessions());
+  const activeProject = getProjectSummary().find((project) => project.key === selectedProject);
+  sessionsHeadingEl.textContent = activeProject?.label || "All projects";
+  sessionsCountEl.textContent = `${visibleSessions.length} sessions`;
+  sessionsEl.innerHTML = visibleSessions.map((session) => {
+    const project = deriveProject(session);
+    return `
     <button class="session ${session.threadId === selected ? "active" : ""}" data-id="${escapeHtml(session.threadId)}">
       <span class="session-kind">${escapeHtml(session.threadSource || "unknown")}</span>
       <strong>${escapeHtml(session.threadName || shortId(session.threadId))}</strong>
       <span class="session-path">${escapeHtml(session.cwd || session.filePath || "")}</span>
       <span class="session-foot">
-        <span>${escapeHtml(shortId(session.threadId))}</span>
+        <span>${escapeHtml(project.label)}</span>
         <span>${session.lineCount || 0} lines</span>
       </span>
     </button>
-  `).join("");
+  `;
+  }).join("") || `<div class="empty-state">No sessions in this project.</div>`;
   sessionsEl.querySelectorAll(".session").forEach((node) => {
     node.addEventListener("click", () => selectSession(node.dataset.id));
   });
+}
+
+function renderProjects() {
+  const projects = getProjectSummary();
+  projectsEl.innerHTML = projects.map((project) => `
+    <button class="project-item ${project.key === selectedProject ? "active" : ""}" data-project="${escapeHtml(project.key)}" title="${escapeHtml(project.path || project.label)}">
+      <span>
+        <strong>${escapeHtml(project.label)}</strong>
+        <small>${escapeHtml(project.path || "All indexed sessions")}</small>
+      </span>
+      <em>${project.count}</em>
+    </button>
+  `).join("");
+  projectsEl.querySelectorAll("[data-project]").forEach((node) => {
+    node.addEventListener("click", () => {
+      selectedProject = node.dataset.project;
+      renderProjects();
+      renderSessions();
+    });
+  });
+}
+
+function filterSessionsByProject(records) {
+  if (selectedProject === "all") return records;
+  return records.filter((session) => deriveProject(session).key === selectedProject);
+}
+
+function getProjectSummary() {
+  const byProject = new Map();
+  const gallerySessions = getGallerySessions();
+  for (const session of gallerySessions) {
+    const project = deriveProject(session);
+    const existing = byProject.get(project.key);
+    const updatedAt = session.updatedAt || session.startedAt || "";
+    if (existing) {
+      existing.count += 1;
+      if (updatedAt > existing.updatedAt) existing.updatedAt = updatedAt;
+      continue;
+    }
+    byProject.set(project.key, { ...project, count: 1, updatedAt });
+  }
+  const projects = Array.from(byProject.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.label.localeCompare(b.label));
+  return [
+    { key: "all", label: "All projects", path: "", count: gallerySessions.length, updatedAt: projects[0]?.updatedAt || "" },
+    ...projects,
+  ];
+}
+
+function getGallerySessions() {
+  return sessions.filter((session) => session.threadSource !== "subagent");
+}
+
+function deriveProject(session) {
+  const path = session.cwd || "";
+  if (!path) return { key: "unknown", label: "Unknown project", path: "" };
+  const parts = path.split("/").filter(Boolean);
+  const label = parts[parts.length - 1] || path;
+  return { key: path, label, path };
+}
+
+function ensureSelectedProjectExists() {
+  if (selectedProject === "all") return;
+  if (!getGallerySessions().some((session) => deriveProject(session).key === selectedProject)) {
+    selectedProject = "all";
+  }
 }
 
 function setActiveTab(tab) {

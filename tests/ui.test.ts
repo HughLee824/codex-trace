@@ -34,3 +34,22 @@ test("timeline messages expose timestamps in a tighter detail layout", async () 
   assert.match(css, /max-width: 1040px/);
   assert.match(css, /\.message-time/);
 });
+
+test("session gallery supports project-first browsing", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+
+  assert.match(html, /id="projects"/);
+  assert.match(html, /id="sessions-heading"/);
+  assert.match(js, /let selectedProject = "all"/);
+  assert.match(js, /function deriveProject\(session\)/);
+  assert.match(js, /function getGallerySessions\(\)/);
+  assert.match(js, /session\.threadSource !== "subagent"/);
+  assert.match(js, /renderProjects\(\)/);
+  assert.match(js, /filterSessionsByProject\(/);
+  assert.match(css, /\.gallery-shell/);
+  assert.match(css, /\.project-list/);
+  assert.doesNotMatch(css, /\.session-results[\s\S]*overflow-y: auto/);
+  assert.doesNotMatch(css, /\.gallery-shell[\s\S]*max-height: calc/);
+});

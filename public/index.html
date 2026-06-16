@@ -25,7 +25,21 @@
           <h2>Local traces.</h2>
           <p>Messages, tools, subagents, raw JSON.</p>
         </div>
-        <div id="sessions"></div>
+        <div class="gallery-shell">
+          <aside class="project-panel" aria-labelledby="projects-heading">
+            <div class="project-panel__head">
+              <h3 id="projects-heading">Projects</h3>
+            </div>
+            <div id="projects" class="project-list"></div>
+          </aside>
+          <section class="session-results" aria-labelledby="sessions-heading">
+            <div class="section-title">
+              <h3 id="sessions-heading">All projects</h3>
+              <span id="sessions-count">0</span>
+            </div>
+            <div id="sessions"></div>
+          </section>
+        </div>
       </section>
       <section id="detail-page" class="detail-page" hidden>
         <div class="detail-head">

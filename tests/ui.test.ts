@@ -24,3 +24,13 @@ test("opening a child session resets detail view to timeline output", async () =
   assert.match(js, /selectSession\(button\.dataset\.child, "timeline"\)/);
   assert.match(js, /setActiveTab\(tab\)/);
 });
+
+test("timeline messages expose timestamps in a tighter detail layout", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+
+  assert.match(js, /formatMessageTimestamp\(message\.timestamp\)/);
+  assert.match(js, /class="message-time"/);
+  assert.match(css, /max-width: 1040px/);
+  assert.match(css, /\.message-time/);
+});

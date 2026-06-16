@@ -104,15 +104,21 @@ async function renderTimeline() {
   const messageRecords = data.messages || [];
   const eventRecords = data.events || [];
   const toolRecords = data.toolCalls || data.tools || [];
-  const messages = messageRecords.map((message) => `
+  const messages = messageRecords.map((message) => {
+    const timestamp = formatMessageTimestamp(message.timestamp);
+    return `
     <div class="message ${escapeHtml(message.role)}">
-      <div class="message-kicker">
-        <span class="badge">${escapeHtml(message.role)}</span>
-        <span class="badge subtle">${escapeHtml(message.phase || message.source)}</span>
+      <div class="message-meta">
+        <div class="message-kicker">
+          <span class="badge">${escapeHtml(message.role)}</span>
+          <span class="badge subtle">${escapeHtml(message.phase || message.source)}</span>
+        </div>
+        ${timestamp ? `<time class="message-time" datetime="${escapeHtml(message.timestamp)}">${escapeHtml(timestamp)}</time>` : ""}
       </div>
       <p>${escapeHtml(message.text)}</p>
     </div>
-  `).join("");
+  `;
+  }).join("");
   const events = eventRecords.slice(-80).map((event) => `
     <details class="event-row">
       <summary>
@@ -247,6 +253,17 @@ function shortId(value) {
 function formatDuration(ms) {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatMessageTimestamp(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (date.toDateString() === now.toDateString()) return time;
+  const day = date.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
+  return `${day} ${time}`;
 }
 
 function renderSessionHero(session, stats = []) {

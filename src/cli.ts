@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,11 @@ interface RuntimeConfig {
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "serve";
+  if (command === "version") {
+    console.log(await readPackageVersion());
+    return;
+  }
+
   const config = readConfig(process.argv.slice(3));
   await mkdir(config.traceHome, { recursive: true });
 
@@ -94,6 +99,11 @@ function readFlag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   if (index === -1) return undefined;
   return args[index + 1];
+}
+
+async function readPackageVersion(): Promise<string> {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  return packageJson.version;
 }
 
 main().catch((error) => {

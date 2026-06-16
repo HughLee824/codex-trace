@@ -240,17 +240,24 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
     if (event.eventType === "message.user" || event.eventType === "message.assistant.commentary" || event.eventType === "message.assistant.final") {
       const text = event.text ?? "";
       if (text && !(event.role !== "assistant" && isSensitiveModelInput(event.role, text))) {
-        messages.push({
+        const source = parsed?.type === "event_msg" ? "event_msg" : "response_item";
+        const message = {
           threadId: session.threadId,
           turnId: event.turnId,
           role: event.role ?? "unknown",
           phase: event.phase,
-          source: parsed?.type === "event_msg" ? "event_msg" : "response_item",
+          source,
           eventType: event.eventType,
           text: redactText(text),
           lineNo,
           timestamp: event.timestamp,
-        });
+        };
+        const echoIndex = messages.findIndex((existing) => isMessageEcho(existing, message));
+        if (echoIndex === -1) {
+          messages.push(message);
+        } else if (source === "response_item" && messages[echoIndex].source === "event_msg") {
+          messages[echoIndex] = message;
+        }
       }
       if (event.eventType === "message.user" && event.turnId) {
         const turn = getTurn(event.turnId);
@@ -366,4 +373,17 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
     subagentEdges,
     subagentEvents,
   };
+}
+
+function isMessageEcho(existing: MessageRecord, incoming: MessageRecord): boolean {
+  if (existing.source === incoming.source) return false;
+  if (existing.role !== incoming.role) return false;
+  if ((existing.phase ?? "") !== (incoming.phase ?? "")) return false;
+  if (existing.eventType !== incoming.eventType) return false;
+  if (existing.text !== incoming.text) return false;
+  if (!existing.timestamp || !incoming.timestamp) return false;
+  const existingTime = Date.parse(existing.timestamp);
+  const incomingTime = Date.parse(incoming.timestamp);
+  if (Number.isNaN(existingTime) || Number.isNaN(incomingTime)) return false;
+  return Math.abs(existingTime - incomingTime) <= 2000;
 }

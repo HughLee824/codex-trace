@@ -50,3 +50,19 @@ test("buildSessionModel creates a fallback turn when task_started has no turn id
   assert.equal(model.turns[0].turnId, "turn-1");
   assert.equal(model.turns[0].status, "completed");
 });
+
+test("buildSessionModel deduplicates event stream echoes from visible messages", () => {
+  const lines = [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "hello" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:02.000Z", type: "event_msg", payload: { type: "agent_message", message: "working", phase: "commentary" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:02.010Z", type: "response_item", payload: { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "working" }] } }),
+  ];
+
+  const model = buildSessionModel("/tmp/rollout.jsonl", lines);
+
+  assert.equal(model.events.length, 5);
+  assert.deepEqual(model.messages.map((message) => message.text), ["hello", "working"]);
+  assert.deepEqual(model.messages.map((message) => message.source), ["response_item", "response_item"]);
+});

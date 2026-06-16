@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const cliPath = join(packageDir, "src", "cli.ts");
-const child = spawn(process.execPath, ["--no-warnings", "--experimental-strip-types", cliPath, ...process.argv.slice(2)], {
+const cliPath = join(packageDir, "dist", "cli.js");
+const child = spawn(process.execPath, [cliPath, ...process.argv.slice(2)], {
   stdio: "inherit",
 });
 

@@ -38,3 +38,15 @@ test("normalizeLine marks unknown or invalid input without throwing", () => {
   assert.equal(normalizeLine("{bad", 1, "thread-x").eventType, "raw.unknown");
   assert.equal(normalizeLine(JSON.stringify({ type: "compacted", payload: {} }), 2, "thread-x").eventType, "context.compacted");
 });
+
+test("buildSessionModel creates a fallback turn when task_started has no turn id", () => {
+  const lines = [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "task_started" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:02.000Z", type: "event_msg", payload: { type: "task_complete", duration_ms: 1000 } }),
+  ];
+
+  const model = buildSessionModel("/tmp/rollout.jsonl", lines);
+
+  assert.equal(model.turns[0].turnId, "turn-1");
+  assert.equal(model.turns[0].status, "completed");
+});

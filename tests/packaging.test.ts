@@ -18,7 +18,8 @@ test("package metadata is ready for public npm publishing", async () => {
   assert.ok(packageJson.keywords.includes("codex"));
   assert.ok(packageJson.keywords.includes("trace"));
   assert.ok(packageJson.files.includes("bin"));
-  assert.ok(packageJson.files.includes("src"));
+  assert.ok(packageJson.files.includes("dist"));
+  assert.ok(!packageJson.files.includes("src"));
   assert.ok(packageJson.files.includes("public"));
   assert.ok(packageJson.files.includes("README.md"));
   assert.ok(packageJson.files.includes("LICENSE"));
@@ -46,13 +47,14 @@ test("npm publish workflow uses trusted publishing from release tags", async () 
   assert.doesNotMatch(workflow, /NPM_TOKEN/);
 });
 
-test("npm bin wrapper launches the TypeScript CLI through Node", async () => {
+test("npm bin wrapper launches the compiled JavaScript CLI", async () => {
   const wrapper = await readFile("bin/codex-trace.js", "utf8");
   const wrapperStat = await stat("bin/codex-trace.js");
 
   assert.match(wrapper, /^#!\/usr\/bin\/env node/);
-  assert.match(wrapper, /--experimental-strip-types/);
-  assert.match(wrapper, /"src", "cli\.ts"/);
+  assert.doesNotMatch(wrapper, /--experimental-strip-types/);
+  assert.doesNotMatch(wrapper, /"src", "cli\.ts"/);
+  assert.match(wrapper, /"dist", "cli\.js"/);
   assert.notEqual(wrapperStat.mode & 0o111, 0);
 });
 
@@ -65,6 +67,8 @@ test("open-source docs and Apache license are present", async () => {
 
   assert.match(readme, /npm install -g codex-trace/);
   assert.match(readme, /codex-trace serve/);
+  assert.match(readme, /npm run build/);
+  assert.doesNotMatch(readme, /no build step/);
   assert.match(readme, /Privacy/);
   assert.match(license, /Apache License/);
   assert.match(license, /Version 2\.0, January 2004/);

@@ -1,6 +1,6 @@
 {
   "name": "codex-trace",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local web UI for inspecting Codex session traces, tool calls, and subagents.",
   "license": "Apache-2.0",
   "type": "module",
@@ -13,12 +13,13 @@
   },
   "files": [
     "bin",
-    "src",
+    "dist",
     "public",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "serve": "node --experimental-strip-types src/cli.ts serve",
     "reindex": "node --experimental-strip-types src/cli.ts reindex",
@@ -39,5 +40,9 @@
   },
   "engines": {
     "node": ">=22.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.21",
+    "typescript": "^6.0.3"
   }
 }

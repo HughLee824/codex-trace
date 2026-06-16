@@ -223,8 +223,9 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
     events.push(event);
 
     if (event.eventType === "turn.started") {
-      currentTurnId = payload.turn_id;
-      const turn = getTurn(currentTurnId);
+      const turnId = String(payload.turn_id ?? currentTurnId ?? `turn-${lineNo}`);
+      currentTurnId = turnId;
+      const turn = getTurn(turnId);
       turn.startedAt = parsed.timestamp ?? (payload.started_at ? new Date(payload.started_at * 1000).toISOString() : undefined);
       turn.status = "running";
     }

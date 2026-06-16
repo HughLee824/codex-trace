@@ -85,12 +85,13 @@ The UI redacts common secret-like values in normalized previews, but raw event e
 ## Development
 
 ```bash
-pnpm test
-pnpm serve
+npm test
+npm run build
+npm run serve
 npm pack --dry-run
 ```
 
-This project intentionally has no build step. The npm executable launches the TypeScript source through Node's `--experimental-strip-types` flag, so the package requires Node `22.11.0` or newer.
+The published npm package runs compiled JavaScript from `dist/`. Local development scripts run the TypeScript source through Node's `--experimental-strip-types` flag, so the project requires Node `22.11.0` or newer.
 
 ## License
 

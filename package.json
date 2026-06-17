@@ -1,6 +1,6 @@
 {
   "name": "codex-trace",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Local web UI for inspecting Codex session traces, tool calls, and subagents.",
   "license": "Apache-2.0",
   "type": "module",

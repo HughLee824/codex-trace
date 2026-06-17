@@ -531,9 +531,52 @@ h1 {
   white-space: nowrap;
 }
 
-.message p {
+.message-body {
   overflow-wrap: anywhere;
+}
+
+.message-body > * + * {
+  margin-top: 12px;
+}
+
+.message-body p {
+  margin: 0;
   white-space: pre-wrap;
+}
+
+.message-body h1,
+.message-body h2,
+.message-body h3,
+.message-body h4 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.28;
+  margin: 0;
+}
+
+.message-body ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.message-body li + li {
+  margin-top: 4px;
+}
+
+.message-body a {
+  color: var(--primary);
+}
+
+.message-body :not(pre) > code {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 5px;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 2px 5px;
+}
+
+.message-body pre {
+  margin: 0;
 }
 
 .badge {

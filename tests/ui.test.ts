@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import test from "node:test";
 
 test("UI separates session list route from session detail route", async () => {
@@ -36,6 +37,36 @@ test("timeline messages expose timestamps in a tighter detail layout", async () 
   assert.match(css, /\.message-time/);
 });
 
+test("timeline messages render common markdown safely", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "renderInlineMarkdown"),
+    extractFunction(js, "renderMarkdown"),
+    "renderMarkdown;",
+  ].join("\n");
+  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+
+  const html = renderMarkdown([
+    "**Done** with `code` and [docs](https://example.com).",
+    "",
+    "- first",
+    "- <script>alert(1)</script>",
+    "",
+    "   ```json",
+    "{\"ok\": true}",
+    "   ```",
+  ].join("\n"));
+
+  assert.match(html, /<strong>Done<\/strong>/);
+  assert.match(html, /<code>code<\/code>/);
+  assert.match(html, /<a href="https:\/\/example\.com" target="_blank" rel="noreferrer">docs<\/a>/);
+  assert.match(html, /<ul>[\s\S]*<li>first<\/li>[\s\S]*<li>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/li>[\s\S]*<\/ul>/);
+  assert.match(html, /<pre><code class="language-json">\{&quot;ok&quot;: true\}<\/code><\/pre>/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
 test("session gallery supports project-first browsing", async () => {
   const html = await readFile("public/index.html", "utf8");
   const js = await readFile("public/app.js", "utf8");
@@ -54,3 +85,17 @@ test("session gallery supports project-first browsing", async () => {
   assert.doesNotMatch(css, /\.session-results[\s\S]*overflow-y: auto/);
   assert.doesNotMatch(css, /\.gallery-shell[\s\S]*max-height: calc/);
 });
+
+function extractFunction(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`Unable to extract ${name}`);
+}

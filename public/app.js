@@ -193,7 +193,7 @@ async function renderTimeline() {
         </div>
         ${timestamp ? `<time class="message-time" datetime="${escapeHtml(message.timestamp)}">${escapeHtml(timestamp)}</time>` : ""}
       </div>
-      <p>${escapeHtml(message.text)}</p>
+      <div class="message-body">${renderMarkdown(message.text)}</div>
     </div>
   `;
   }).join("");
@@ -320,6 +320,111 @@ function escapeHtml(value) {
     "\"": "&quot;",
     "'": "&#039;"
   }[char]));
+}
+
+function renderMarkdown(value) {
+  const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+  let listItems = [];
+  let codeLines = [];
+  let codeLanguage = "";
+  let inCodeBlock = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    output.push(`<p>${renderInlineMarkdown(paragraph.join("\n")).replace(/\n/g, "<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    output.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  };
+  const flushCodeBlock = () => {
+    const className = codeLanguage ? ` class="language-${escapeHtml(codeLanguage)}"` : "";
+    output.push(`<pre><code${className}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+    codeLanguage = "";
+    inCodeBlock = false;
+  };
+
+  for (const line of lines) {
+    const fence = line.match(/^ {0,3}```([A-Za-z0-9_-]+)?\s*$/);
+    if (inCodeBlock) {
+      if (fence) {
+        flushCodeBlock();
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    if (fence) {
+      flushParagraph();
+      flushList();
+      inCodeBlock = true;
+      codeLanguage = fence[1] || "";
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const listItem = line.match(/^[-*]\s+(.+)$/);
+    if (listItem) {
+      flushParagraph();
+      listItems.push(listItem[1]);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      output.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+
+  if (inCodeBlock) flushCodeBlock();
+  flushParagraph();
+  flushList();
+  return output.join("");
+}
+
+function renderInlineMarkdown(value) {
+  const placeholders = [];
+  const stash = (html) => {
+    const index = placeholders.push(html) - 1;
+    return `\u0000${index}\u0000`;
+  };
+  let html = escapeHtml(value);
+
+  html = html.replace(/`([^`\n]+)`/g, (_match, code) => stash(`<code>${code}</code>`));
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, href) => {
+    if (!isSafeMarkdownHref(href)) return `${label} (${href})`;
+    return `<a href="${href}" target="_blank" rel="noreferrer">${label}</a>`;
+  });
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  return html.replace(/\u0000(\d+)\u0000/g, (_match, index) => placeholders[Number(index)] || "");
+}
+
+function isSafeMarkdownHref(href) {
+  const normalized = String(href || "").replace(/&amp;/g, "&").trim().toLowerCase();
+  return normalized.startsWith("https://")
+    || normalized.startsWith("http://")
+    || normalized.startsWith("mailto:")
+    || normalized.startsWith("/")
+    || normalized.startsWith("#");
 }
 
 function shortId(value) {

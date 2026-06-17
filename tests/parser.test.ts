@@ -66,3 +66,77 @@ test("buildSessionModel deduplicates event stream echoes from visible messages",
   assert.deepEqual(model.messages.map((message) => message.text), ["hello", "working"]);
   assert.deepEqual(model.messages.map((message) => message.source), ["response_item", "response_item"]);
 });
+
+test("buildSessionModel records latest token and context usage", () => {
+  const lines = [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "task_started", turn_id: "turn-1", model_context_window: 200000 } }),
+    JSON.stringify({
+      timestamp: "2026-06-14T00:00:02.000Z",
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 1200,
+            cached_input_tokens: 800,
+            output_tokens: 90,
+            reasoning_output_tokens: 20,
+            total_tokens: 1290,
+          },
+          last_token_usage: {
+            input_tokens: 900,
+            cached_input_tokens: 700,
+            output_tokens: 40,
+            reasoning_output_tokens: 10,
+            total_tokens: 940,
+          },
+          model_context_window: 200000,
+        },
+      },
+    }),
+    JSON.stringify({
+      timestamp: "2026-06-14T00:00:03.000Z",
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 1800,
+            cached_input_tokens: 900,
+            output_tokens: 120,
+            reasoning_output_tokens: 25,
+            total_tokens: 1920,
+          },
+          last_token_usage: {
+            input_tokens: 1100,
+            cached_input_tokens: 100,
+            output_tokens: 30,
+            reasoning_output_tokens: 5,
+            total_tokens: 1130,
+          },
+          model_context_window: 200000,
+        },
+      },
+    }),
+  ];
+
+  const model = buildSessionModel("/tmp/rollout.jsonl", lines);
+
+  assert.deepEqual(model.usage, {
+    threadId: "thread-1",
+    inputTokens: 1800,
+    cachedInputTokens: 900,
+    outputTokens: 120,
+    reasoningOutputTokens: 25,
+    totalTokens: 1920,
+    lastInputTokens: 1100,
+    lastCachedInputTokens: 100,
+    lastOutputTokens: 30,
+    lastReasoningOutputTokens: 5,
+    lastTotalTokens: 1130,
+    contextWindow: 200000,
+    contextUsedTokens: 1100,
+    updatedAt: "2026-06-14T00:00:03.000Z",
+  });
+});

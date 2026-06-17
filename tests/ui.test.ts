@@ -86,6 +86,41 @@ test("session gallery supports project-first browsing", async () => {
   assert.doesNotMatch(css, /\.gallery-shell[\s\S]*max-height: calc/);
 });
 
+test("timeline renders usage under the session hero without a stats tab", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+
+  assert.doesNotMatch(html, /data-tab="stats"/);
+  assert.doesNotMatch(js, /renderStats/);
+  assert.match(js, /Promise\.all\(\[/);
+  assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/usage/);
+  assert.match(js, /renderAgentUsage\(usage\)/);
+  assert.match(js, /renderSessionHero\(data\.session,[\s\S]*usage\.current/);
+  assert.match(js, /renderSessionKind\(session\)/);
+  assert.match(js, /Main session/);
+  assert.match(js, /Subagent/);
+  assert.match(js, /renderTokenBreakdown\(usage\.total\)/);
+  assert.match(js, /function renderTokenBreakdown/);
+  assert.match(js, /function renderContextDonut/);
+  assert.doesNotMatch(js, /function renderCurrentContextUsage/);
+  assert.doesNotMatch(js, /function renderContextChart/);
+  assert.doesNotMatch(js, /<h3>Token usage<\/h3>/);
+  assert.doesNotMatch(js, /<h3>Context usage<\/h3>/);
+  assert.doesNotMatch(js, /current agent/);
+  assert.doesNotMatch(js, /Current agent/);
+  assert.match(js, /class="context-donut"/);
+  assert.match(js, /class="context-title">Context/);
+  assert.match(css, /\.usage-grid/);
+  assert.match(css, /\.context-donut/);
+  assert.match(css, /conic-gradient/);
+  assert.match(css, /\.trace-summary[\s\S]*grid-template-columns: repeat\(3, minmax\(92px, 1fr\)\) minmax\(118px, auto\)/);
+  assert.match(css, /\.trace-path[\s\S]*text-overflow: ellipsis/);
+  assert.match(css, /\.trace-stats span[\s\S]*min-height: 92px/);
+  assert.match(css, /\.trace-context[\s\S]*min-height: 104px/);
+  assert.match(css, /\.context-title[\s\S]*font-size: 11px/);
+});
+
 function extractFunction(source: string, name: string): string {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} should exist`);

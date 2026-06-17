@@ -17,6 +17,7 @@ test("HTTP API serves sessions, timeline, tools, subagents, raw events, and doct
     JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } }),
     JSON.stringify({ timestamp: "2026-06-14T00:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "hello" } }),
     JSON.stringify({ timestamp: "2026-06-14T00:00:03.000Z", type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\"cmd\":\"pwd\"}" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:04.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 20, output_tokens: 30, reasoning_output_tokens: 5, total_tokens: 130 }, last_token_usage: { input_tokens: 90, cached_input_tokens: 10, output_tokens: 30, reasoning_output_tokens: 5, total_tokens: 120 }, model_context_window: 1000 } } }),
   ].join("\n") + "\n");
 
   const rootSessionsDir = join(dir, "sessions");
@@ -48,6 +49,10 @@ test("HTTP API serves sessions, timeline, tools, subagents, raw events, and doct
 
     const subagents = await fetchJson(`${base}/api/sessions/thread-1/subagents`);
     assert.deepEqual(subagents, []);
+
+    const usage = await fetchJson(`${base}/api/sessions/thread-1/usage`);
+    assert.equal(usage.total.inputTokens, 100);
+    assert.equal(usage.agents[0].contextUsedTokens, 90);
 
     const raw = await fetchJson(`${base}/api/events/${timeline.events[0].id}/raw`);
     assert.match(raw.rawJson, /session_meta/);

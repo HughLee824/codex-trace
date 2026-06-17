@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import type { SessionModel, SessionRecord, SubagentEdge, ToolCallRecord } from "./types.ts";
+import type { AgentUsageRecord, SessionModel, SessionRecord, SubagentEdge, TokenUsageRecord, ToolCallRecord, UsageStats } from "./types.ts";
 
 function q(value: unknown): string {
   if (value === undefined || value === null) return "NULL";
@@ -107,6 +107,22 @@ export class TraceStore {
         changed_files TEXT,
         PRIMARY KEY (thread_id, call_id)
       );
+      CREATE TABLE IF NOT EXISTS session_usage (
+        thread_id TEXT PRIMARY KEY,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        last_input_tokens INTEGER NOT NULL DEFAULT 0,
+        last_cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        last_output_tokens INTEGER NOT NULL DEFAULT 0,
+        last_reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+        last_total_tokens INTEGER NOT NULL DEFAULT 0,
+        context_window INTEGER,
+        context_used_tokens INTEGER,
+        updated_at TEXT
+      );
       CREATE TABLE IF NOT EXISTS subagent_edges (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         parent_thread_id TEXT,
@@ -128,6 +144,7 @@ export class TraceStore {
   async clear(): Promise<void> {
     this.exec(`
       DELETE FROM subagent_edges;
+      DELETE FROM session_usage;
       DELETE FROM tool_calls;
       DELETE FROM messages;
       DELETE FROM events;
@@ -142,6 +159,7 @@ export class TraceStore {
       "BEGIN;",
       `DELETE FROM subagent_edges WHERE parent_thread_id = ${q(s.threadId)} OR child_thread_id = ${q(s.threadId)};`,
       `DELETE FROM tool_calls WHERE thread_id = ${q(s.threadId)};`,
+      `DELETE FROM session_usage WHERE thread_id = ${q(s.threadId)};`,
       `DELETE FROM messages WHERE thread_id = ${q(s.threadId)};`,
       `DELETE FROM events WHERE thread_id = ${q(s.threadId)};`,
       `DELETE FROM turns WHERE thread_id = ${q(s.threadId)};`,
@@ -168,6 +186,7 @@ export class TraceStore {
       statements.push(`INSERT INTO messages (thread_id, turn_id, role, phase, source, event_type, text, line_no, timestamp)
         VALUES (${q(s.threadId)}, ${q(message.turnId)}, ${q(message.role)}, ${q(message.phase)}, ${q(message.source)}, ${q(message.eventType)}, ${q(message.text)}, ${q(message.lineNo)}, ${q(message.timestamp)});`);
     }
+    if (model.usage) statements.push(this.insertUsageSql(model.usage));
     for (const call of model.toolCalls) statements.push(this.insertToolSql(call));
     for (const edge of model.subagentEdges) statements.push(this.insertEdgeSql(edge));
     statements.push("COMMIT;");
@@ -218,6 +237,44 @@ export class TraceStore {
     return this.query(`SELECT parent_thread_id AS parentThreadId, child_thread_id AS childThreadId, agent_id AS agentId, nickname, role, depth, spawn_call_id AS spawnCallId, status_summary AS statusSummary FROM subagent_edges WHERE parent_thread_id = ${q(threadId)} OR child_thread_id = ${q(threadId)} ORDER BY id;`) as SubagentEdge[];
   }
 
+  async getUsageStats(threadId: string): Promise<UsageStats> {
+    const session = await this.getSession(threadId);
+    const childEdges = await this.getDescendantEdges(threadId);
+    const childIds = unique(childEdges.map((edge) => edge.childThreadId!).filter(Boolean));
+    const ids = unique([threadId, ...childIds]);
+    const usageByThread = new Map((await this.getUsageRows(ids)).map((row) => [row.threadId, row]));
+    const sessionByThread = new Map((await this.getSessionsByIds(ids)).map((record) => [record.threadId, record]));
+
+    const agents: AgentUsageRecord[] = [];
+    const current: AgentUsageRecord = {
+      ...zeroUsage(threadId),
+      ...usageByThread.get(threadId),
+      kind: "lead",
+      label: session?.agentNickname || session?.threadName || "Lead agent",
+      role: session?.agentRole,
+    };
+    agents.push(current);
+
+    for (const edge of childEdges) {
+      const childId = edge.childThreadId!;
+      const childSession = sessionByThread.get(childId);
+      agents.push({
+        ...zeroUsage(childId),
+        ...usageByThread.get(childId),
+        kind: "subagent",
+        label: edge.nickname || childSession?.agentNickname || shortId(childId),
+        role: edge.role || childSession?.agentRole,
+      });
+    }
+
+    return {
+      threadId,
+      total: sumUsage(threadId, agents),
+      current,
+      agents,
+    };
+  }
+
   async getRawEvent(eventId: number): Promise<{ id: number; rawJson: string }> {
     const row = this.query(`SELECT id, raw_json AS rawJson FROM events WHERE id = ${q(eventId)} LIMIT 1;`)[0];
     if (!row) throw new Error(`event not found: ${eventId}`);
@@ -228,9 +285,61 @@ export class TraceStore {
     return `INSERT INTO tool_calls VALUES (${q(call.threadId)}, ${q(call.turnId)}, ${q(call.callId)}, ${q(call.name)}, ${q(call.kind)}, ${q(call.arguments)}, ${q(call.output)}, ${q(call.status)}, ${q(call.cwd)}, ${q(call.stdout)}, ${q(call.stderr)}, ${q(call.exitCode)}, ${q(call.durationMs)}, ${q(call.startedLine)}, ${q(call.outputLine)}, ${bool(call.patchSuccess)}, ${json(call.changedFiles)});`;
   }
 
+  private insertUsageSql(usage: TokenUsageRecord): string {
+    return `INSERT INTO session_usage VALUES (
+      ${q(usage.threadId)}, ${q(usage.inputTokens)}, ${q(usage.cachedInputTokens)}, ${q(usage.outputTokens)},
+      ${q(usage.reasoningOutputTokens)}, ${q(usage.totalTokens)}, ${q(usage.lastInputTokens)},
+      ${q(usage.lastCachedInputTokens)}, ${q(usage.lastOutputTokens)}, ${q(usage.lastReasoningOutputTokens)},
+      ${q(usage.lastTotalTokens)}, ${q(usage.contextWindow)}, ${q(usage.contextUsedTokens)}, ${q(usage.updatedAt)}
+    );`;
+  }
+
   private insertEdgeSql(edge: SubagentEdge): string {
     return `INSERT INTO subagent_edges (parent_thread_id, child_thread_id, agent_id, nickname, role, depth, spawn_call_id, status_summary)
       VALUES (${q(edge.parentThreadId)}, ${q(edge.childThreadId)}, ${q(edge.agentId)}, ${q(edge.nickname)}, ${q(edge.role)}, ${q(edge.depth)}, ${q(edge.spawnCallId)}, ${q(edge.statusSummary)});`;
+  }
+
+  private async getUsageRows(threadIds: string[]): Promise<TokenUsageRecord[]> {
+    if (!threadIds.length) return [];
+    const rows = this.query(`SELECT
+      thread_id AS threadId,
+      input_tokens AS inputTokens,
+      cached_input_tokens AS cachedInputTokens,
+      output_tokens AS outputTokens,
+      reasoning_output_tokens AS reasoningOutputTokens,
+      total_tokens AS totalTokens,
+      last_input_tokens AS lastInputTokens,
+      last_cached_input_tokens AS lastCachedInputTokens,
+      last_output_tokens AS lastOutputTokens,
+      last_reasoning_output_tokens AS lastReasoningOutputTokens,
+      last_total_tokens AS lastTotalTokens,
+      context_window AS contextWindow,
+      context_used_tokens AS contextUsedTokens,
+      updated_at AS updatedAt
+      FROM session_usage WHERE thread_id IN (${threadIds.map(q).join(", ")});`) as TokenUsageRecord[];
+    return rows.map((row) => ({ ...zeroUsage(row.threadId), ...row }));
+  }
+
+  private async getSessionsByIds(threadIds: string[]): Promise<SessionRecord[]> {
+    if (!threadIds.length) return [];
+    return this.query(`SELECT thread_id AS threadId, file_path AS filePath, thread_name AS threadName, parent_thread_id AS parentThreadId, agent_nickname AS agentNickname, agent_role AS agentRole, line_count AS lineCount FROM sessions WHERE thread_id IN (${threadIds.map(q).join(", ")});`) as SessionRecord[];
+  }
+
+  private async getDescendantEdges(threadId: string): Promise<SubagentEdge[]> {
+    const rows = this.query(`SELECT parent_thread_id AS parentThreadId, child_thread_id AS childThreadId, agent_id AS agentId, nickname, role, depth, spawn_call_id AS spawnCallId, status_summary AS statusSummary FROM subagent_edges ORDER BY id;`) as SubagentEdge[];
+    const result: SubagentEdge[] = [];
+    const seen = new Set<string>();
+    const queue = [threadId];
+    while (queue.length) {
+      const parent = queue.shift()!;
+      for (const edge of rows) {
+        if (edge.parentThreadId !== parent || !edge.childThreadId || seen.has(edge.childThreadId)) continue;
+        seen.add(edge.childThreadId);
+        result.push(edge);
+        queue.push(edge.childThreadId);
+      }
+    }
+    return result;
   }
 
   private exec(sql: string): void {
@@ -244,4 +353,50 @@ export class TraceStore {
     const text = result.stdout.trim();
     return text ? JSON.parse(text) : [];
   }
+}
+
+function unique<T>(values: T[]): T[] {
+  return Array.from(new Set(values));
+}
+
+function zeroUsage(threadId: string): TokenUsageRecord {
+  return {
+    threadId,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+    lastInputTokens: 0,
+    lastCachedInputTokens: 0,
+    lastOutputTokens: 0,
+    lastReasoningOutputTokens: 0,
+    lastTotalTokens: 0,
+  };
+}
+
+function sumUsage(threadId: string, agents: AgentUsageRecord[]): TokenUsageRecord {
+  const total = zeroUsage(threadId);
+  for (const agent of agents) {
+    total.inputTokens += agent.inputTokens;
+    total.cachedInputTokens += agent.cachedInputTokens;
+    total.outputTokens += agent.outputTokens;
+    total.reasoningOutputTokens += agent.reasoningOutputTokens;
+    total.totalTokens += agent.totalTokens;
+    total.lastInputTokens += agent.lastInputTokens;
+    total.lastCachedInputTokens += agent.lastCachedInputTokens;
+    total.lastOutputTokens += agent.lastOutputTokens;
+    total.lastReasoningOutputTokens += agent.lastReasoningOutputTokens;
+    total.lastTotalTokens += agent.lastTotalTokens;
+    total.contextWindow = (total.contextWindow ?? 0) + (agent.contextWindow ?? 0);
+    total.contextUsedTokens = (total.contextUsedTokens ?? 0) + (agent.contextUsedTokens ?? 0);
+    if (!total.updatedAt || (agent.updatedAt && agent.updatedAt > total.updatedAt)) total.updatedAt = agent.updatedAt;
+  }
+  if (total.contextWindow === 0) total.contextWindow = undefined;
+  if (total.contextUsedTokens === 0) total.contextUsedTokens = undefined;
+  return total;
+}
+
+function shortId(value: string): string {
+  return value.length > 13 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
 }

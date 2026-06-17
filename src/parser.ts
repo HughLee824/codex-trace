@@ -8,6 +8,7 @@ import type {
   SessionRecord,
   SubagentEdge,
   SubagentEvent,
+  TokenUsageRecord,
   ToolCallRecord,
   TurnRecord,
 } from "./types.ts";
@@ -46,6 +47,45 @@ function durationToMs(duration: any): number | undefined {
     return Math.round((duration.secs ?? 0) * 1000 + (duration.nanos ?? 0) / 1_000_000);
   }
   return undefined;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readTokenUsage(source: any) {
+  return {
+    inputTokens: numberValue(source?.input_tokens ?? source?.inputTokens),
+    cachedInputTokens: numberValue(source?.cached_input_tokens ?? source?.cachedInputTokens ?? source?.input_tokens_details?.cached_tokens),
+    outputTokens: numberValue(source?.output_tokens ?? source?.outputTokens),
+    reasoningOutputTokens: numberValue(source?.reasoning_output_tokens ?? source?.reasoningOutputTokens ?? source?.output_tokens_details?.reasoning_tokens),
+    totalTokens: numberValue(source?.total_tokens ?? source?.totalTokens),
+  };
+}
+
+function extractTokenUsage(payload: any, threadId: string, timestamp?: string): TokenUsageRecord | undefined {
+  const info = payload?.info ?? payload;
+  const totalSource = info?.total_token_usage ?? info?.totalTokenUsage ?? payload?.usage;
+  const lastSource = info?.last_token_usage ?? info?.lastTokenUsage ?? totalSource;
+  if (!totalSource && !lastSource && !info?.model_context_window && !payload?.model_context_window) return undefined;
+
+  const total = readTokenUsage(totalSource);
+  const last = readTokenUsage(lastSource);
+  const contextWindow = numberValue(info?.model_context_window ?? payload?.model_context_window) || undefined;
+  const contextUsedTokens = last.inputTokens || undefined;
+
+  return {
+    threadId,
+    ...total,
+    lastInputTokens: last.inputTokens,
+    lastCachedInputTokens: last.cachedInputTokens,
+    lastOutputTokens: last.outputTokens,
+    lastReasoningOutputTokens: last.reasoningOutputTokens,
+    lastTotalTokens: last.totalTokens,
+    contextWindow,
+    contextUsedTokens,
+    updatedAt: timestamp,
+  };
 }
 
 function summarizeWaitOutput(output: string | undefined): string | undefined {
@@ -173,6 +213,7 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
   const toolCalls = new Map<string, ToolCallRecord>();
   const subagentEdges: SubagentEdge[] = [];
   const subagentEvents: SubagentEvent[] = [];
+  let usage: TokenUsageRecord | undefined;
   let currentTurnId: string | undefined;
 
   function getTurn(turnId: string): TurnRecord {
@@ -362,6 +403,12 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
         call.outputLine = lineNo;
       }
     }
+
+    if (parsed?.type === "event_msg" && payload.type === "token_count") {
+      usage = extractTokenUsage(payload, session.threadId, parsed.timestamp) ?? usage;
+    } else if (payload?.usage) {
+      usage = extractTokenUsage(payload, session.threadId, parsed?.timestamp) ?? usage;
+    }
   }
 
   return {
@@ -372,6 +419,7 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
     toolCalls: Array.from(toolCalls.values()),
     subagentEdges,
     subagentEvents,
+    usage,
   };
 }
 

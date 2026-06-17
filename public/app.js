@@ -178,7 +178,10 @@ async function renderSelected() {
 }
 
 async function renderTimeline() {
-  const data = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/timeline`);
+  const [data, usage] = await Promise.all([
+    fetchJson(`/api/sessions/${encodeURIComponent(selected)}/timeline`),
+    fetchJson(`/api/sessions/${encodeURIComponent(selected)}/usage`),
+  ]);
   const messageRecords = data.messages || [];
   const eventRecords = data.events || [];
   const toolRecords = data.toolCalls || data.tools || [];
@@ -213,7 +216,8 @@ async function renderTimeline() {
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
       ["events", eventRecords.length],
-    ])}
+    ], usage.current)}
+    ${renderAgentUsage(usage)}
     <section class="timeline-section">
       <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
       ${messages || `<div class="empty-state">No messages captured.</div>`}
@@ -253,6 +257,49 @@ async function renderTools() {
           ${tool.changedFiles ? `<div class="meta">Changed: ${escapeHtml(tool.changedFiles.join(", "))}</div>` : ""}
         </details>
       `).join("") || `<div class="empty-state">No tools captured.</div>`}
+    </div>
+  `;
+}
+
+function renderAgentUsage(usage = {}) {
+  return `
+    <section class="agent-usage">
+      ${renderTokenBreakdown(usage.total)}
+    </section>
+  `;
+}
+
+function renderTokenBreakdown(usage = {}) {
+  const rows = [
+    ["Input", usage.inputTokens || 0],
+    ["Cached input", usage.cachedInputTokens || 0],
+    ["Output", usage.outputTokens || 0],
+    ["Reasoning output", usage.reasoningOutputTokens || 0],
+    ["Total", usage.totalTokens || 0],
+  ];
+  return `
+    <div class="usage-grid">
+      ${rows.map(([label, value]) => `
+        <div class="usage-card">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(formatNumber(value))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderContextDonut(agent = {}) {
+  const used = agent.contextUsedTokens || 0;
+  const limit = agent.contextWindow || 0;
+  const percent = limit ? Math.min(100, Math.round((used / limit) * 1000) / 10) : 0;
+  return `
+    <div class="trace-context">
+      <span class="context-title">Context</span>
+      <div class="context-donut" style="--context-percent: ${percent}">
+        <span>${escapeHtml(`${percent}%`)}</span>
+      </div>
+      <span class="context-actual">${escapeHtml(`${formatCompactNumber(used)} / ${limit ? formatCompactNumber(limit) : "unknown"}`)}</span>
     </div>
   `;
 }
@@ -438,6 +485,17 @@ function formatDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function formatCompactNumber(value) {
+  const number = Number(value || 0);
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
+  return String(number);
+}
+
 function formatMessageTimestamp(timestamp) {
   if (!timestamp) return "";
   const date = new Date(timestamp);
@@ -449,22 +507,31 @@ function formatMessageTimestamp(timestamp) {
   return `${day} ${time}`;
 }
 
-function renderSessionHero(session, stats = []) {
+function renderSessionHero(session, stats = [], contextUsage) {
   const title = session?.threadName || shortId(selected);
+  const path = session?.filePath || "";
   return `
     <section class="trace-hero">
       <div>
-        <p class="eyebrow">${escapeHtml(session?.threadSource || "session")}</p>
+        <p class="eyebrow">${escapeHtml(renderSessionKind(session))}</p>
         <h2>${escapeHtml(title)}</h2>
-        <p>${escapeHtml(session?.filePath || "")}</p>
+        <p class="trace-path" title="${escapeHtml(path)}">${escapeHtml(path)}</p>
       </div>
-      <div class="trace-stats">
-        ${stats.map(([label, value]) => `
-          <span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>
-        `).join("")}
+      <div class="trace-summary">
+        <div class="trace-stats">
+          ${stats.map(([label, value]) => `
+            <span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>
+          `).join("")}
+        </div>
+        ${renderContextDonut(contextUsage)}
       </div>
     </section>
   `;
+}
+
+function renderSessionKind(session) {
+  if (session?.threadSource === "subagent") return "Subagent";
+  return "Main session";
 }
 
 connectLive();

@@ -113,6 +113,36 @@ export interface SubagentEvent extends SubagentEdge {
   timestamp?: string;
 }
 
+export interface TokenUsageRecord {
+  threadId: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  lastInputTokens: number;
+  lastCachedInputTokens: number;
+  lastOutputTokens: number;
+  lastReasoningOutputTokens: number;
+  lastTotalTokens: number;
+  contextWindow?: number;
+  contextUsedTokens?: number;
+  updatedAt?: string;
+}
+
+export interface AgentUsageRecord extends TokenUsageRecord {
+  kind: "lead" | "subagent";
+  label: string;
+  role?: string;
+}
+
+export interface UsageStats {
+  threadId: string;
+  total: TokenUsageRecord;
+  current: AgentUsageRecord;
+  agents: AgentUsageRecord[];
+}
+
 export interface SessionModel {
   session: SessionRecord;
   turns: TurnRecord[];
@@ -121,4 +151,5 @@ export interface SessionModel {
   toolCalls: ToolCallRecord[];
   subagentEdges: SubagentEdge[];
   subagentEvents: SubagentEvent[];
+  usage?: TokenUsageRecord;
 }

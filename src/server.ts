@@ -107,6 +107,12 @@ async function route(
     return;
   }
 
+  const usageMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/usage$/);
+  if (usageMatch) {
+    sendJson(response, 200, await options.store.getUsageStats(usageMatch[1]));
+    return;
+  }
+
   const rawMatch = pathname.match(/^\/api\/events\/(\d+)\/raw$/);
   if (rawMatch) {
     sendJson(response, 200, await options.store.getRawEvent(Number(rawMatch[1])));

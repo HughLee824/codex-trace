@@ -216,7 +216,7 @@ async function renderTimeline() {
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
       ["events", eventRecords.length],
-    ], usage.current)}
+    ])}
     ${renderAgentUsage(usage)}
     <section class="timeline-section">
       <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
@@ -264,7 +264,10 @@ async function renderTools() {
 function renderAgentUsage(usage = {}) {
   return `
     <section class="agent-usage">
-      ${renderTokenBreakdown(usage.total)}
+      <div class="usage-grid">
+        ${renderContextUsageCard(usage.current)}
+        ${renderTokenBreakdown(usage.total)}
+      </div>
     </section>
   `;
 }
@@ -277,51 +280,66 @@ function renderTokenBreakdown(usage = {}) {
     ["Reasoning output", usage.reasoningOutputTokens || 0],
     ["Total", usage.totalTokens || 0],
   ];
-  return `
-    <div class="usage-grid">
-      ${rows.map(([label, value]) => `
-        <div class="usage-card">
-          <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(formatNumber(value))}</strong>
+  return rows.map(([label, value]) => `
+        <div class="usage-card" title="${escapeHtml(formatNumber(value))}">
+          <span class="usage-card__label">${escapeHtml(label)}</span>
+          <strong class="usage-card__value">${escapeHtml(formatTokenAmount(value))}</strong>
         </div>
-      `).join("")}
-    </div>
-  `;
+      `).join("");
 }
 
-function renderContextDonut(agent = {}) {
+function renderContextUsageCard(agent = {}) {
   const used = agent.contextUsedTokens || 0;
   const limit = agent.contextWindow || 0;
-  const percent = limit ? Math.min(100, Math.round((used / limit) * 1000) / 10) : 0;
+  const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const percentLabel = limit ? `${percent}%` : "Unknown";
   return `
-    <div class="trace-context">
-      <span class="context-title">Context</span>
+    <div class="usage-card context-usage-card" data-tooltip="${escapeHtml(`${formatNumber(used)} / ${limit ? formatNumber(limit) : "unknown"}`)}">
+      <span class="usage-card__label">Context window</span>
       <div class="context-donut" style="--context-percent: ${percent}">
-        <span>${escapeHtml(`${percent}%`)}</span>
+        <i class="context-donut__cap context-donut__cap--start" style="--context-cap-opacity: ${percent ? 1 : 0}"></i>
+        <i class="context-donut__cap context-donut__cap--end" style="--context-cap-angle: ${percent * 3.6}deg; --context-cap-opacity: ${percent ? 1 : 0}"></i>
+        <span>${escapeHtml(percentLabel)}</span>
       </div>
-      <span class="context-actual">${escapeHtml(`${formatCompactNumber(used)} / ${limit ? formatCompactNumber(limit) : "unknown"}`)}</span>
     </div>
   `;
 }
 
 async function renderSubagents() {
   const edges = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/subagents`);
-  panelEl.innerHTML = edges.map((edge) => `
-    <div class="subagent-card">
-      <span class="session-kind">subagent</span>
-      <strong>${escapeHtml(edge.nickname || edge.agentId || edge.childThreadId || "subagent")}</strong>
-      <div class="meta">${escapeHtml(edge.role || "worker")} ${escapeHtml(edge.statusSummary || "")}</div>
-      <div class="edge-line">
-        <span>${escapeHtml(shortId(edge.parentThreadId || ""))}</span>
-        <span>to</span>
-        <span>${escapeHtml(shortId(edge.childThreadId || ""))}</span>
-      </div>
-      ${edge.childThreadId ? `<button data-child="${escapeHtml(edge.childThreadId)}">Open child</button>` : ""}
+  panelEl.innerHTML = `
+    <div class="subagent-list">
+      ${edges.map((edge) => renderSubagentCard(edge)).join("") || `<div class="empty-state">No subagents captured.</div>`}
     </div>
-  `).join("") || `<div class="empty-state">No subagents captured.</div>`;
-  panelEl.querySelectorAll("[data-child]").forEach((button) =>
-    button.addEventListener("click", () => selectSession(button.dataset.child, "timeline")),
-  );
+  `;
+  panelEl.querySelectorAll("[data-child]").forEach((card) => {
+    const openChild = () => selectSession(card.dataset.child, "timeline");
+    card.addEventListener("click", openChild);
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openChild();
+    });
+  });
+}
+
+function renderSubagentCard(edge) {
+  const childId = edge.childThreadId || edge.agentId || "";
+  const name = edge.nickname || edge.agentId || edge.childThreadId || "subagent";
+  const details = [edge.role || "worker", edge.statusSummary].filter(Boolean).join(" · ");
+  const childSessionLabel = childId ? `Child session ${shortId(childId)}` : "No child session linked";
+  const childTitle = childId || "No child session linked";
+  const actionAttrs = childId
+    ? ` data-child="${escapeHtml(childId)}" role="button" tabindex="0" aria-label="Open ${escapeHtml(name)} child session"`
+    : "";
+  return `
+    <article class="subagent-card ${childId ? "subagent-card--clickable" : ""}"${actionAttrs}>
+      <span class="session-kind">subagent</span>
+      <strong>${escapeHtml(name)}</strong>
+      <div class="subagent-card__meta">${escapeHtml(details)}</div>
+      <div class="subagent-card__session" title="${escapeHtml(childTitle)}">${escapeHtml(childSessionLabel)}</div>
+    </article>
+  `;
 }
 
 function renderLive() {
@@ -489,6 +507,13 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString();
 }
 
+function formatTokenAmount(value) {
+  const number = Number(value || 0);
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(number);
+}
+
 function formatCompactNumber(value) {
   const number = Number(value || 0);
   if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
@@ -507,7 +532,7 @@ function formatMessageTimestamp(timestamp) {
   return `${day} ${time}`;
 }
 
-function renderSessionHero(session, stats = [], contextUsage) {
+function renderSessionHero(session, stats = []) {
   const title = session?.threadName || shortId(selected);
   const path = session?.filePath || "";
   return `
@@ -517,13 +542,10 @@ function renderSessionHero(session, stats = [], contextUsage) {
         <h2>${escapeHtml(title)}</h2>
         <p class="trace-path" title="${escapeHtml(path)}">${escapeHtml(path)}</p>
       </div>
-      <div class="trace-summary">
-        <div class="trace-stats">
-          ${stats.map(([label, value]) => `
-            <span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>
-          `).join("")}
-        </div>
-        ${renderContextDonut(contextUsage)}
+      <div class="trace-stats">
+        ${stats.map(([label, value]) => `
+          <span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>
+        `).join("")}
       </div>
     </section>
   `;

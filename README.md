@@ -44,6 +44,7 @@ It writes its own index under:
 codex-trace serve
 codex-trace reindex
 codex-trace doctor
+codex-trace update
 ```
 
 `serve` starts the local HTTP UI, indexes historical sessions, and tails new JSONL events.
@@ -52,9 +53,11 @@ codex-trace doctor
 
 `doctor` checks whether the sessions directory, index path, and optional Codex log database are readable.
 
+`update` updates the global npm installation with `npm install -g codex-trace@latest`.
+
 ## Options
 
-All commands accept the same path options:
+`serve`, `reindex`, and `doctor` accept the same path options:
 
 ```bash
 codex-trace serve \

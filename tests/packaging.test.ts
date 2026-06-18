@@ -67,6 +67,7 @@ test("open-source docs and Apache license are present", async () => {
 
   assert.match(readme, /npm install -g codex-trace/);
   assert.match(readme, /codex-trace serve/);
+  assert.match(readme, /codex-trace update/);
   assert.match(readme, /npm run build/);
   assert.doesNotMatch(readme, /no build step/);
   assert.match(readme, /Privacy/);

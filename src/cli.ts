@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,10 @@ async function main(): Promise<void> {
   const command = process.argv[2] ?? "serve";
   if (command === "version") {
     console.log(await readPackageVersion());
+    return;
+  }
+  if (command === "update") {
+    process.exitCode = await runSelfUpdate();
     return;
   }
 
@@ -104,6 +109,35 @@ function readFlag(args: string[], name: string): string | undefined {
 async function readPackageVersion(): Promise<string> {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   return packageJson.version;
+}
+
+async function runSelfUpdate(): Promise<number> {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const args = ["install", "-g", "codex-trace@latest"];
+  console.log(`Updating codex-trace with: npm ${args.join(" ")}`);
+
+  return new Promise((resolve) => {
+    const child = spawn(npmCommand, args, { stdio: "inherit" });
+    let settled = false;
+    const settle = (code: number) => {
+      if (settled) return;
+      settled = true;
+      resolve(code);
+    };
+
+    child.on("error", (error) => {
+      console.error(error.message);
+      settle(1);
+    });
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        console.error(`npm install stopped by signal ${signal}`);
+        settle(1);
+        return;
+      }
+      settle(code ?? 1);
+    });
+  });
 }
 
 main().catch((error) => {

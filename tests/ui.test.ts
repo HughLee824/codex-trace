@@ -145,6 +145,7 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.match(js, /Promise\.all\(\[/);
   assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/usage/);
   assert.match(js, /renderAgentUsage\(usage\)/);
+  assert.match(renderTimeline, /updateStickyUsageDensity\(\)/);
   assert.doesNotMatch(renderTimeline, /Raw event stream/);
   assert.doesNotMatch(renderTimeline, /data-raw/);
   assert.doesNotMatch(renderTimeline, /eventRecords\.slice/);
@@ -154,7 +155,12 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.match(js, /Subagent/);
   assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderContextUsageCard\(usage\.current\)/);
   assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderTokenBreakdown\(usage\.total\)/);
+  assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderCompactUsageRow\(usage\)/);
   assert.match(js, /function renderTokenBreakdown/);
+  assert.match(js, /function getTokenUsageRows/);
+  assert.match(js, /function renderCompactUsageRow/);
+  assert.match(js, /function renderCompactUsageItem/);
+  assert.match(js, /function formatContextPercent/);
   assert.match(js, /function formatTokenAmount/);
   assert.match(js, /function renderContextUsageCard/);
   assert.match(js, /Math\.round\(\(used \/ limit\) \* 100\)/);
@@ -185,6 +191,28 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.match(css, /\.agent-usage[\s\S]*position: sticky/);
   assert.match(css, /\.agent-usage[\s\S]*top: 108px/);
   assert.match(css, /\.agent-usage[\s\S]*z-index: [1-8]/);
+  assert.doesNotMatch(css, /\.agent-usage\s*\{[^}]*\bgap:/);
+  assert.match(css, /\.agent-usage__full/);
+  assert.match(css, /\.agent-usage__full[\s\S]*max-height: 112px/);
+  assert.match(css, /\.agent-usage__full[\s\S]*transition: max-height 180ms cubic-bezier\(0\.2, 0, 0, 1\)/);
+  assert.match(css, /\.usage-compact-row/);
+  assert.match(css, /\.usage-compact-row[\s\S]*display: flex/);
+  assert.match(css, /\.usage-compact-row[\s\S]*overflow-x: auto/);
+  assert.match(css, /\.usage-compact-row[\s\S]*max-height: 0/);
+  assert.match(css, /\.usage-compact-row[\s\S]*opacity: 0/);
+  assert.match(css, /\.usage-compact-row[\s\S]*transition: max-height 180ms cubic-bezier\(0\.2, 0, 0, 1\)/);
+  assert.match(css, /\.usage-compact-item/);
+  assert.match(css, /\.usage-compact-item[\s\S]*flex: 1 0 118px/);
+  assert.match(css, /\.usage-compact-item[\s\S]*grid-template-columns: minmax\(0, auto\) max-content/);
+  assert.match(css, /\.usage-compact-item__label/);
+  assert.match(css, /\.usage-compact-item__value/);
+  assert.match(css, /\.agent-usage--compact/);
+  assert.match(css, /\.agent-usage--compact[\s\S]*padding: 6px 0 8px/);
+  assert.match(css, /\.agent-usage--compact \.agent-usage__full[\s\S]*max-height: 0/);
+  assert.match(css, /\.agent-usage--compact \.agent-usage__full[\s\S]*opacity: 0/);
+  assert.match(css, /\.agent-usage--compact \.usage-compact-row[\s\S]*max-height: 48px/);
+  assert.match(css, /\.agent-usage--compact \.usage-compact-row[\s\S]*opacity: 1/);
+  assert.doesNotMatch(css, /\.agent-usage--compact \.usage-card[\s\S]*min-height: 56px/);
   assert.match(css, /grid-template-columns: repeat\(auto-fit, minmax\(104px, 1fr\)\)/);
   assert.match(css, /\.usage-card__value/);
   assert.doesNotMatch(css, /\.usage-card__unit/);
@@ -202,6 +230,29 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.doesNotMatch(css, /\.trace-summary[\s\S]*minmax\(118px, auto\)/);
   assert.match(css, /\.trace-path[\s\S]*text-overflow: ellipsis/);
   assert.match(css, /\.trace-stats span[\s\S]*min-height: 92px/);
+});
+
+test("timeline usage strip compacts when it reaches sticky position", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const updateStickyUsageDensity = extractFunction(js, "updateStickyUsageDensity");
+  const renderCompactUsageRow = extractFunction(js, "renderCompactUsageRow");
+
+  assert.match(js, /let usageDensityFrame = 0/);
+  assert.match(js, /const stickyUsageTop = 108/);
+  assert.match(js, /window\.addEventListener\("scroll", scheduleStickyUsageUpdate, \{ passive: true \}\)/);
+  assert.match(js, /window\.addEventListener\("resize", scheduleStickyUsageUpdate\)/);
+  assert.match(js, /function scheduleStickyUsageUpdate\(\)/);
+  assert.match(js, /requestAnimationFrame/);
+  assert.match(updateStickyUsageDensity, /panelEl\.querySelector\("\.agent-usage"\)/);
+  assert.match(updateStickyUsageDensity, /getBoundingClientRect\(\)\.top <= stickyUsageTop \+ 1/);
+  assert.match(updateStickyUsageDensity, /classList\.contains\("agent-usage--compact"\) !== compact/);
+  assert.match(updateStickyUsageDensity, /classList\.toggle\("agent-usage--compact"/);
+  assert.match(renderCompactUsageRow, /class="usage-compact-row"/);
+  assert.match(renderCompactUsageRow, /renderCompactUsageItem\("Context window", formatContextPercent\(usage\.current\)\)/);
+  assert.match(renderCompactUsageRow, /getTokenUsageRows\(usage\.total\)\.map/);
+  assert.match(js, /class="usage-compact-item"/);
+  assert.match(js, /class="usage-compact-item__label"/);
+  assert.match(js, /class="usage-compact-item__value"/);
 });
 
 test("events view owns raw event stream and raw JSON expansion", async () => {

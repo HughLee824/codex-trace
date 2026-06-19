@@ -2,6 +2,8 @@ let sessions = [];
 let selected = null;
 let selectedProject = "all";
 let activeTab = "timeline";
+let usageDensityFrame = 0;
+const stickyUsageTop = 108;
 
 const sessionsEl = document.getElementById("sessions");
 const projectsEl = document.getElementById("projects");
@@ -34,6 +36,8 @@ backButton.addEventListener("click", () => {
   renderRoute();
 });
 window.addEventListener("hashchange", renderRoute);
+window.addEventListener("scroll", scheduleStickyUsageUpdate, { passive: true });
+window.addEventListener("resize", scheduleStickyUsageUpdate);
 
 async function loadSessions(q = "", options = {}) {
   sessions = await fetchJson(`/api/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`);
@@ -210,6 +214,24 @@ async function renderTimeline() {
       ${messages || `<div class="empty-state">No messages captured.</div>`}
     </section>
   `;
+  updateStickyUsageDensity();
+}
+
+function scheduleStickyUsageUpdate() {
+  if (usageDensityFrame) return;
+  usageDensityFrame = requestAnimationFrame(() => {
+    usageDensityFrame = 0;
+    updateStickyUsageDensity();
+  });
+}
+
+function updateStickyUsageDensity() {
+  const usage = panelEl.querySelector(".agent-usage");
+  if (!usage) return;
+  const compact = usage.getBoundingClientRect().top <= stickyUsageTop + 1;
+  if (usage.classList.contains("agent-usage--compact") !== compact) {
+    usage.classList.toggle("agent-usage--compact", compact);
+  }
 }
 
 async function renderTools() {
@@ -239,23 +261,17 @@ async function renderTools() {
 function renderAgentUsage(usage = {}) {
   return `
     <section class="agent-usage">
-      <div class="usage-grid">
+      <div class="usage-grid agent-usage__full">
         ${renderContextUsageCard(usage.current)}
         ${renderTokenBreakdown(usage.total)}
       </div>
+      ${renderCompactUsageRow(usage)}
     </section>
   `;
 }
 
 function renderTokenBreakdown(usage = {}) {
-  const rows = [
-    ["Input", usage.inputTokens || 0],
-    ["Cached input", usage.cachedInputTokens || 0],
-    ["Output", usage.outputTokens || 0],
-    ["Reasoning output", usage.reasoningOutputTokens || 0],
-    ["Total", usage.totalTokens || 0],
-  ];
-  return rows.map(([label, value]) => `
+  return getTokenUsageRows(usage).map(([label, value]) => `
         <div class="usage-card" title="${escapeHtml(formatNumber(value))}">
           <span class="usage-card__label">${escapeHtml(label)}</span>
           <strong class="usage-card__value">${escapeHtml(formatTokenAmount(value))}</strong>
@@ -263,11 +279,51 @@ function renderTokenBreakdown(usage = {}) {
       `).join("");
 }
 
+function getTokenUsageRows(usage = {}) {
+  return [
+    ["Input", usage.inputTokens || 0],
+    ["Cached input", usage.cachedInputTokens || 0],
+    ["Output", usage.outputTokens || 0],
+    ["Reasoning output", usage.reasoningOutputTokens || 0],
+    ["Total", usage.totalTokens || 0],
+  ];
+}
+
+function renderCompactUsageRow(usage) {
+  usage = usage || {};
+  return `
+    <div class="usage-compact-row" aria-hidden="true">
+      ${renderCompactUsageItem("Context window", formatContextPercent(usage.current))}
+      ${getTokenUsageRows(usage.total).map(([label, value]) => renderCompactUsageItem(label, formatTokenAmount(value), formatNumber(value))).join("")}
+    </div>
+  `;
+}
+
+function renderCompactUsageItem(label, value, title = value) {
+  return `
+        <div class="usage-compact-item" title="${escapeHtml(title)}">
+          <span class="usage-compact-item__label">${escapeHtml(label)}</span>
+          <strong class="usage-compact-item__value">${escapeHtml(value)}</strong>
+        </div>
+      `;
+}
+
+function formatContextPercent(agent = {}) {
+  const limit = agent.contextWindow || 0;
+  return limit ? `${getContextPercent(agent)}%` : "Unknown";
+}
+
+function getContextPercent(agent = {}) {
+  const used = agent.contextUsedTokens || 0;
+  const limit = agent.contextWindow || 0;
+  return limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+}
+
 function renderContextUsageCard(agent = {}) {
   const used = agent.contextUsedTokens || 0;
   const limit = agent.contextWindow || 0;
-  const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const percentLabel = limit ? `${percent}%` : "Unknown";
+  const percent = getContextPercent(agent);
+  const percentLabel = formatContextPercent(agent);
   return `
     <div class="usage-card context-usage-card" data-tooltip="${escapeHtml(`${formatNumber(used)} / ${limit ? formatNumber(limit) : "unknown"}`)}">
       <span class="usage-card__label">Context window</span>

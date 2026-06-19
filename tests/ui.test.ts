@@ -82,26 +82,7 @@ test("timeline messages expose timestamps in a tighter detail layout", async () 
 
 test("timeline messages render common markdown safely", async () => {
   const js = await readFile("public/app.js", "utf8");
-  const code = [
-    extractFunction(js, "escapeHtml"),
-    extractFunction(js, "isSafeMarkdownHref"),
-    extractFunction(js, "unescapeDirectiveString"),
-    extractFunction(js, "parseDirectiveAttributes"),
-    extractFunction(js, "parseCodeCommentDirective"),
-    extractFunction(js, "formatCodeCommentLocation"),
-    extractFunction(js, "renderCodeComment"),
-    extractFunction(js, "renderMemoryCitation"),
-    extractFunction(js, "parseSubagentNotification"),
-    extractFunction(js, "renderSubagentNotification"),
-    extractFunction(js, "isImageAttachmentPath"),
-    extractFunction(js, "parseFileAttachmentText"),
-    extractFunction(js, "parseImageDirective"),
-    extractFunction(js, "renderImageAttachment"),
-    extractFunction(js, "renderInlineMarkdown"),
-    extractFunction(js, "renderMarkdown"),
-    "renderMarkdown;",
-  ].join("\n");
-  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const renderMarkdown = getRenderMarkdown(js);
 
   const html = renderMarkdown([
     "**Done** with `code` and [docs](https://example.com).",
@@ -125,26 +106,7 @@ test("timeline messages render common markdown safely", async () => {
 test("timeline messages render review directives as compact audit blocks", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");
-  const code = [
-    extractFunction(js, "escapeHtml"),
-    extractFunction(js, "isSafeMarkdownHref"),
-    extractFunction(js, "unescapeDirectiveString"),
-    extractFunction(js, "parseDirectiveAttributes"),
-    extractFunction(js, "parseCodeCommentDirective"),
-    extractFunction(js, "formatCodeCommentLocation"),
-    extractFunction(js, "renderCodeComment"),
-    extractFunction(js, "renderMemoryCitation"),
-    extractFunction(js, "parseSubagentNotification"),
-    extractFunction(js, "renderSubagentNotification"),
-    extractFunction(js, "isImageAttachmentPath"),
-    extractFunction(js, "parseFileAttachmentText"),
-    extractFunction(js, "parseImageDirective"),
-    extractFunction(js, "renderImageAttachment"),
-    extractFunction(js, "renderInlineMarkdown"),
-    extractFunction(js, "renderMarkdown"),
-    "renderMarkdown;",
-  ].join("\n");
-  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const renderMarkdown = getRenderMarkdown(js);
 
   const html = renderMarkdown([
     "Found one actionable issue.",
@@ -177,26 +139,7 @@ test("timeline messages render review directives as compact audit blocks", async
 test("timeline messages render subagent notifications as readable handoff cards", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");
-  const code = [
-    extractFunction(js, "escapeHtml"),
-    extractFunction(js, "isSafeMarkdownHref"),
-    extractFunction(js, "unescapeDirectiveString"),
-    extractFunction(js, "parseDirectiveAttributes"),
-    extractFunction(js, "parseCodeCommentDirective"),
-    extractFunction(js, "formatCodeCommentLocation"),
-    extractFunction(js, "renderCodeComment"),
-    extractFunction(js, "renderMemoryCitation"),
-    extractFunction(js, "parseSubagentNotification"),
-    extractFunction(js, "renderSubagentNotification"),
-    extractFunction(js, "isImageAttachmentPath"),
-    extractFunction(js, "parseFileAttachmentText"),
-    extractFunction(js, "parseImageDirective"),
-    extractFunction(js, "renderImageAttachment"),
-    extractFunction(js, "renderInlineMarkdown"),
-    extractFunction(js, "renderMarkdown"),
-    "renderMarkdown;",
-  ].join("\n");
-  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const renderMarkdown = getRenderMarkdown(js);
 
   const payload = {
     agent_path: "019edead-4fb1-7231-b447-72bbe96f9b5e",
@@ -230,26 +173,7 @@ test("timeline messages render subagent notifications as readable handoff cards"
 
 test("timeline messages render embedded subagent notification blocks with surrounding content", async () => {
   const js = await readFile("public/app.js", "utf8");
-  const code = [
-    extractFunction(js, "escapeHtml"),
-    extractFunction(js, "isSafeMarkdownHref"),
-    extractFunction(js, "unescapeDirectiveString"),
-    extractFunction(js, "parseDirectiveAttributes"),
-    extractFunction(js, "parseCodeCommentDirective"),
-    extractFunction(js, "formatCodeCommentLocation"),
-    extractFunction(js, "renderCodeComment"),
-    extractFunction(js, "renderMemoryCitation"),
-    extractFunction(js, "parseSubagentNotification"),
-    extractFunction(js, "renderSubagentNotification"),
-    extractFunction(js, "isImageAttachmentPath"),
-    extractFunction(js, "parseFileAttachmentText"),
-    extractFunction(js, "parseImageDirective"),
-    extractFunction(js, "renderImageAttachment"),
-    extractFunction(js, "renderInlineMarkdown"),
-    extractFunction(js, "renderMarkdown"),
-    "renderMarkdown;",
-  ].join("\n");
-  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const renderMarkdown = getRenderMarkdown(js);
   const payload = {
     agent_path: "019edead-4fb1-7231-b447-72bbe96f9b5e",
     status: { blocked: "Stage 9B blocked:\n\n- blockers: missing target-bound upload API" },
@@ -274,29 +198,51 @@ test("timeline messages render embedded subagent notification blocks with surrou
   assert.doesNotMatch(html, /&quot;agent_path&quot;/);
 });
 
+test("timeline messages render single-line subagent notification wrappers", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const renderMarkdown = getRenderMarkdown(js);
+  const payload = {
+    agent_path: "019edead-4fb1-7231-b447-72bbe96f9b5e",
+    status: { completed: "Stage 9B handoff:\n\n- artifactsWritten: shopify-media-map.json" },
+  };
+
+  const html = renderMarkdown(`<subagent_notification>${JSON.stringify(payload)}</subagent_notification>`);
+
+  assert.match(html, /class="subagent-notification"/);
+  assert.match(html, /Subagent completed/);
+  assert.match(html, /<li>artifactsWritten: shopify-media-map\.json<\/li>/);
+  assert.doesNotMatch(html, /&lt;subagent_notification&gt;/);
+  assert.doesNotMatch(html, /&quot;agent_path&quot;/);
+});
+
+test("timeline messages render Codex action directives through a generic registry", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const renderMarkdown = getRenderMarkdown(js);
+
+  const html = renderMarkdown([
+    "::git-stage{cwd=\"/Users/hui/Somnus/Project/codex-trace\"}",
+    "::git-commit{cwd=\"/Users/hui/Somnus/Project/codex-trace\"}",
+    "::created-thread{threadId=\"019edead-4fb1-7231-b447-72bbe96f9b5e\"}",
+    "::future-directive{foo=\"bar\" count=2}",
+  ].join("\n"));
+
+  assert.match(html, /class="codex-directive codex-directive--git-stage"/);
+  assert.match(html, /Git staged/);
+  assert.match(html, /codex-trace/);
+  assert.match(html, /class="codex-directive codex-directive--created-thread"/);
+  assert.match(html, /Created thread/);
+  assert.match(html, /019edead-4fb1-7231-b447-72bbe96f9b5e/);
+  assert.match(html, /class="codex-directive codex-directive--future-directive"/);
+  assert.match(html, /Future directive/);
+  assert.match(html, /<dt>foo<\/dt><dd><code>bar<\/code><\/dd>/);
+  assert.doesNotMatch(html, /::git-stage/);
+  assert.doesNotMatch(html, /::future-directive/);
+});
+
 test("timeline messages render mentioned image files as previews", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");
-  const code = [
-    extractFunction(js, "escapeHtml"),
-    extractFunction(js, "isSafeMarkdownHref"),
-    extractFunction(js, "unescapeDirectiveString"),
-    extractFunction(js, "parseDirectiveAttributes"),
-    extractFunction(js, "parseCodeCommentDirective"),
-    extractFunction(js, "formatCodeCommentLocation"),
-    extractFunction(js, "renderCodeComment"),
-    extractFunction(js, "renderMemoryCitation"),
-    extractFunction(js, "parseSubagentNotification"),
-    extractFunction(js, "renderSubagentNotification"),
-    extractFunction(js, "isImageAttachmentPath"),
-    extractFunction(js, "parseFileAttachmentText"),
-    extractFunction(js, "parseImageDirective"),
-    extractFunction(js, "renderImageAttachment"),
-    extractFunction(js, "renderInlineMarkdown"),
-    extractFunction(js, "renderMarkdown"),
-    "renderMarkdown;",
-  ].join("\n");
-  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const renderMarkdown = getRenderMarkdown(js);
 
   const html = renderMarkdown([
     "# Files mentioned by the user:",
@@ -537,6 +483,39 @@ test("subagents view renders compact cards in a multi-column grid", async () => 
   assert.doesNotMatch(css, /\.subagent-stat/);
   assert.doesNotMatch(css, /grid-row: 1 \/ span 4/);
 });
+
+function getRenderMarkdown(source: string): (value: string) => string {
+  const functions = [
+    "escapeHtml",
+    "isSafeMarkdownHref",
+    "unescapeDirectiveString",
+    "parseDirectiveAttributes",
+    "parseCodexDirective",
+    "formatCodexDirectiveName",
+    "renderCodexDirective",
+    "parseCodeCommentDirective",
+    "formatCodeCommentLocation",
+    "renderCodeComment",
+    "renderMemoryCitation",
+    "parseSubagentNotification",
+    "renderSubagentNotification",
+    "isCodexBlockTag",
+    "parseCodexBlock",
+    "parseCodexBlockBoundary",
+    "renderCodexBlock",
+    "isImageAttachmentPath",
+    "parseFileAttachmentText",
+    "parseImageDirective",
+    "renderImageAttachment",
+    "renderInlineMarkdown",
+    "renderMarkdown",
+  ];
+  const code = [
+    ...functions.map((name) => extractFunction(source, name)),
+    "renderMarkdown;",
+  ].join("\n");
+  return vm.runInNewContext(code) as (value: string) => string;
+}
 
 function extractFunction(source: string, name: string): string {
   const start = source.indexOf(`function ${name}(`);

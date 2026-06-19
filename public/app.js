@@ -484,11 +484,56 @@ function parseDirectiveAttributes(value) {
   return attributes;
 }
 
-function parseCodeCommentDirective(line) {
-  const prefix = `::code-comment${String.fromCharCode(123)}`;
+// Codex host transcript markers are not Markdown; keep them in small registries
+// so new markers do not require rewiring the main line parser.
+function parseCodexDirective(line) {
   const trimmed = String(line ?? "").trim();
-  if (!trimmed.startsWith(prefix) || !trimmed.endsWith(String.fromCharCode(125))) return null;
-  const attributes = parseDirectiveAttributes(trimmed.slice(prefix.length, -1));
+  const match = trimmed.match(/^::([A-Za-z][A-Za-z0-9_-]*)\{([\s\S]*)\}$/);
+  if (!match) return null;
+  return {
+    name: match[1],
+    attributes: parseDirectiveAttributes(match[2]),
+  };
+}
+
+function formatCodexDirectiveName(name) {
+  const labels = {
+    "created-thread": "Created thread",
+    "git-stage": "Git staged",
+    "git-commit": "Git committed",
+    "git-create-branch": "Created branch",
+    "git-push": "Git pushed",
+    "git-create-pr": "Created pull request",
+  };
+  if (labels[name]) return labels[name];
+  return String(name || "codex directive")
+    .split("-")
+    .filter(Boolean)
+    .map((part, index) => index === 0 ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : part)
+    .join(" ");
+}
+
+function renderCodexDirective(directive) {
+  if (directive.name === "code-comment") return renderCodeComment(directive.attributes);
+  const attributes = directive.attributes || {};
+  const className = String(directive.name || "unknown").replace(/[^A-Za-z0-9_-]/g, "-");
+  const keys = Object.keys(attributes);
+  const details = keys.length
+    ? `<dl class="codex-directive__details">${keys.map((key) => {
+      const value = String(attributes[key] ?? "");
+      const renderedValue = key.toLowerCase() === "url" && isSafeMarkdownHref(value)
+        ? `<a href="${escapeHtml(value)}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>`
+        : `<code>${escapeHtml(value)}</code>`;
+      return `<div><dt>${escapeHtml(key)}</dt><dd>${renderedValue}</dd></div>`;
+    }).join("")}</dl>`
+    : "";
+  return `<section class="codex-directive codex-directive--${escapeHtml(className)}"><div class="codex-directive__head"><span class="badge subtle">Codex</span><strong>${escapeHtml(formatCodexDirectiveName(directive.name))}</strong></div>${details}</section>`;
+}
+
+function parseCodeCommentDirective(line) {
+  const directive = parseCodexDirective(line);
+  if (directive?.name !== "code-comment") return null;
+  const attributes = directive.attributes;
   return attributes.title || attributes.body ? attributes : null;
 }
 
@@ -559,6 +604,34 @@ function renderSubagentNotification(notification) {
   return `<section class="subagent-notification"><div class="subagent-notification__head"><span class="badge subtle">Subagent</span><strong>${escapeHtml(label)}</strong>${agent}</div><div class="subagent-notification__body">${renderMarkdown(notification.body)}</div></section>`;
 }
 
+function isCodexBlockTag(tag) {
+  return ["oai-mem-citation", "subagent_notification"].includes(tag);
+}
+
+function parseCodexBlock(value) {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^<([A-Za-z][A-Za-z0-9_-]*)>([\s\S]*)<\/\1>$/);
+  if (!match || !isCodexBlockTag(match[1])) return null;
+  return { tag: match[1], raw: text };
+}
+
+function parseCodexBlockBoundary(line) {
+  const match = String(line ?? "").trim().match(/^<(\/?)([A-Za-z][A-Za-z0-9_-]*)>$/);
+  if (!match) return null;
+  const tag = match[2];
+  if (!isCodexBlockTag(tag)) return null;
+  return { tag, closing: Boolean(match[1]) };
+}
+
+function renderCodexBlock(tag, raw) {
+  if (tag === "oai-mem-citation") return renderMemoryCitation(raw);
+  if (tag === "subagent_notification") {
+    const notification = parseSubagentNotification(raw);
+    if (notification) return renderSubagentNotification(notification);
+  }
+  return `<p>${renderInlineMarkdown(raw).replace(/\n/g, "<br>")}</p>`;
+}
+
 function isImageAttachmentPath(filePath) {
   const cleanPath = String(filePath || "").split("?")[0].split("#")[0].trim().toLowerCase();
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"].some((extension) => cleanPath.endsWith(extension));
@@ -589,8 +662,8 @@ function renderImageAttachment(attachment) {
 }
 
 function renderMarkdown(value) {
-  const subagentNotification = parseSubagentNotification(value);
-  if (subagentNotification) return renderSubagentNotification(subagentNotification);
+  const codexBlock = parseCodexBlock(value);
+  if (codexBlock) return renderCodexBlock(codexBlock.tag, codexBlock.raw);
 
   const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
@@ -599,10 +672,8 @@ function renderMarkdown(value) {
   let codeLines = [];
   let codeLanguage = "";
   let inCodeBlock = false;
-  let citationLines = [];
-  let inMemoryCitation = false;
-  let notificationLines = [];
-  let inSubagentNotification = false;
+  let codexBlockTag = "";
+  let codexBlockLines = [];
   let inFileMentions = false;
 
   const flushParagraph = () => {
@@ -622,16 +693,10 @@ function renderMarkdown(value) {
     codeLanguage = "";
     inCodeBlock = false;
   };
-  const flushSubagentNotification = () => {
-    const raw = notificationLines.join("\n");
-    const notification = parseSubagentNotification(raw);
-    if (notification) {
-      output.push(renderSubagentNotification(notification));
-    } else {
-      output.push(`<p>${renderInlineMarkdown(raw).replace(/\n/g, "<br>")}</p>`);
-    }
-    notificationLines = [];
-    inSubagentNotification = false;
+  const flushCodexBlock = () => {
+    output.push(renderCodexBlock(codexBlockTag, codexBlockLines.join("\n")));
+    codexBlockTag = "";
+    codexBlockLines = [];
   };
 
   for (const line of lines) {
@@ -645,19 +710,10 @@ function renderMarkdown(value) {
       continue;
     }
 
-    if (inSubagentNotification) {
-      notificationLines.push(line);
-      if (line.trim() === "</subagent_notification>") flushSubagentNotification();
-      continue;
-    }
-
-    if (inMemoryCitation) {
-      citationLines.push(line);
-      if (line.trim() === "</oai-mem-citation>") {
-        output.push(renderMemoryCitation(citationLines.join("\n")));
-        citationLines = [];
-        inMemoryCitation = false;
-      }
+    if (codexBlockTag) {
+      codexBlockLines.push(line);
+      const boundary = parseCodexBlockBoundary(line);
+      if (boundary?.closing && boundary.tag === codexBlockTag) flushCodexBlock();
       continue;
     }
 
@@ -669,19 +725,12 @@ function renderMarkdown(value) {
       continue;
     }
 
-    if (line.trim() === "<subagent_notification>") {
+    const codexBlock = parseCodexBlockBoundary(line);
+    if (codexBlock && !codexBlock.closing) {
       flushParagraph();
       flushList();
-      notificationLines = [line];
-      inSubagentNotification = true;
-      continue;
-    }
-
-    if (line.trim() === "<oai-mem-citation>") {
-      flushParagraph();
-      flushList();
-      citationLines = [line];
-      inMemoryCitation = true;
+      codexBlockTag = codexBlock.tag;
+      codexBlockLines = [line];
       continue;
     }
 
@@ -693,11 +742,11 @@ function renderMarkdown(value) {
       continue;
     }
 
-    const codeComment = parseCodeCommentDirective(line);
-    if (codeComment) {
+    const codexDirective = parseCodexDirective(line);
+    if (codexDirective) {
       flushParagraph();
       flushList();
-      output.push(renderCodeComment(codeComment));
+      output.push(renderCodexDirective(codexDirective));
       continue;
     }
 
@@ -748,8 +797,7 @@ function renderMarkdown(value) {
   }
 
   if (inCodeBlock) flushCodeBlock();
-  if (inSubagentNotification) flushSubagentNotification();
-  if (inMemoryCitation) output.push(renderMemoryCitation(citationLines.join("\n")));
+  if (codexBlockTag) flushCodexBlock();
   flushParagraph();
   flushList();
   return output.join("");

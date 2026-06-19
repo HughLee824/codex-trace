@@ -144,7 +144,8 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.doesNotMatch(css, /\.live-section/);
   assert.match(js, /Promise\.all\(\[/);
   assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/usage/);
-  assert.match(js, /renderAgentUsage\(usage\)/);
+  assert.match(js, /renderAgentUsage\(usage, compactUsage\)/);
+  assert.match(renderTimeline, /const compactUsage = shouldRenderStickyUsageCompact\(\)/);
   assert.match(renderTimeline, /updateStickyUsageDensity\(\)/);
   assert.doesNotMatch(renderTimeline, /Raw event stream/);
   assert.doesNotMatch(renderTimeline, /data-raw/);
@@ -153,9 +154,10 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.match(js, /renderSessionKind\(session\)/);
   assert.match(js, /Main session/);
   assert.match(js, /Subagent/);
-  assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderContextUsageCard\(usage\.current\)/);
-  assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderTokenBreakdown\(usage\.total\)/);
-  assert.match(js, /function renderAgentUsage\(usage = \{\}\) \{[\s\S]*renderCompactUsageRow\(usage\)/);
+  assert.match(js, /function renderAgentUsage\(usage = \{\}, compact = false\) \{[\s\S]*agent-usage\$\{compact \? " agent-usage--compact" : ""\}/);
+  assert.match(js, /function renderAgentUsage\(usage = \{\}, compact = false\) \{[\s\S]*renderContextUsageCard\(usage\.current\)/);
+  assert.match(js, /function renderAgentUsage\(usage = \{\}, compact = false\) \{[\s\S]*renderTokenBreakdown\(usage\.total\)/);
+  assert.match(js, /function renderAgentUsage\(usage = \{\}, compact = false\) \{[\s\S]*renderCompactUsageRow\(usage\)/);
   assert.match(js, /function renderTokenBreakdown/);
   assert.match(js, /function getTokenUsageRows/);
   assert.match(js, /function renderCompactUsageRow/);
@@ -235,6 +237,7 @@ test("timeline renders context usage as a donut card with compact token cards", 
 test("timeline usage strip compacts when it reaches sticky position", async () => {
   const js = await readFile("public/app.js", "utf8");
   const updateStickyUsageDensity = extractFunction(js, "updateStickyUsageDensity");
+  const shouldRenderStickyUsageCompact = extractFunction(js, "shouldRenderStickyUsageCompact");
   const renderCompactUsageRow = extractFunction(js, "renderCompactUsageRow");
 
   assert.match(js, /let usageDensityFrame = 0/);
@@ -247,6 +250,9 @@ test("timeline usage strip compacts when it reaches sticky position", async () =
   assert.match(updateStickyUsageDensity, /getBoundingClientRect\(\)\.top <= stickyUsageTop \+ 1/);
   assert.match(updateStickyUsageDensity, /classList\.contains\("agent-usage--compact"\) !== compact/);
   assert.match(updateStickyUsageDensity, /classList\.toggle\("agent-usage--compact"/);
+  assert.match(shouldRenderStickyUsageCompact, /panelEl\.querySelector\("\.agent-usage"\)/);
+  assert.match(shouldRenderStickyUsageCompact, /classList\.contains\("agent-usage--compact"\)/);
+  assert.match(shouldRenderStickyUsageCompact, /getBoundingClientRect\(\)\.top <= stickyUsageTop \+ 1/);
   assert.match(renderCompactUsageRow, /class="usage-compact-row"/);
   assert.match(renderCompactUsageRow, /renderCompactUsageItem\("Context window", formatContextPercent\(usage\.current\)\)/);
   assert.match(renderCompactUsageRow, /getTokenUsageRows\(usage\.total\)\.map/);

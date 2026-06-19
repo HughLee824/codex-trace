@@ -202,19 +202,27 @@ async function renderTimeline() {
     </div>
   `;
   }).join("");
+  const compactUsage = shouldRenderStickyUsageCompact();
   panelEl.innerHTML = `
     ${renderSessionHero(data.session, [
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
       ["events", data.events?.length || 0],
     ])}
-    ${renderAgentUsage(usage)}
+    ${renderAgentUsage(usage, compactUsage)}
     <section class="timeline-section">
       <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
       ${messages || `<div class="empty-state">No messages captured.</div>`}
     </section>
   `;
   updateStickyUsageDensity();
+}
+
+function shouldRenderStickyUsageCompact() {
+  const usage = panelEl.querySelector(".agent-usage");
+  if (!usage) return false;
+  return usage.classList.contains("agent-usage--compact")
+    || usage.getBoundingClientRect().top <= stickyUsageTop + 1;
 }
 
 function scheduleStickyUsageUpdate() {
@@ -258,9 +266,9 @@ async function renderTools() {
   `;
 }
 
-function renderAgentUsage(usage = {}) {
+function renderAgentUsage(usage = {}, compact = false) {
   return `
-    <section class="agent-usage">
+    <section class="agent-usage${compact ? " agent-usage--compact" : ""}">
       <div class="usage-grid agent-usage__full">
         ${renderContextUsageCard(usage.current)}
         ${renderTokenBreakdown(usage.total)}

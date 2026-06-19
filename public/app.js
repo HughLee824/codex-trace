@@ -216,6 +216,19 @@ async function renderTimeline() {
     </section>
   `;
   updateStickyUsageDensity();
+  attachImageFallbacks(panelEl);
+}
+
+function attachImageFallbacks(root) {
+  root.querySelectorAll(".message-attachment--image img").forEach((image) => {
+    image.addEventListener("error", () => {
+      const attachment = image.closest(".message-attachment--image");
+      if (!attachment) return;
+      attachment.classList.add("message-attachment--failed");
+      const fallback = attachment.querySelector(".message-attachment__fallback");
+      if (fallback) fallback.hidden = false;
+    }, { once: true });
+  });
 }
 
 function shouldRenderStickyUsageCompact() {
@@ -508,6 +521,35 @@ function renderMemoryCitation(raw) {
   return `<details class="memory-citation"><summary>${escapeHtml(label)}</summary><pre>${escapeHtml(raw)}</pre></details>`;
 }
 
+function isImageAttachmentPath(filePath) {
+  const cleanPath = String(filePath || "").split("?")[0].split("#")[0].trim().toLowerCase();
+  return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"].some((extension) => cleanPath.endsWith(extension));
+}
+
+function parseFileAttachmentText(value) {
+  const text = String(value || "").trim();
+  const separator = text.indexOf(": ");
+  if (separator <= 0) return null;
+  const name = text.slice(0, separator).trim();
+  const filePath = text.slice(separator + 2).trim();
+  if (!name || !filePath || !isImageAttachmentPath(name) || !isImageAttachmentPath(filePath)) return null;
+  return { name, path: filePath };
+}
+
+function parseImageDirective(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed.startsWith("<image ") || !trimmed.endsWith(">")) return null;
+  const path = trimmed.match(/\bpath="([^"]+)"/)?.[1];
+  if (!path || !isImageAttachmentPath(path)) return null;
+  const name = trimmed.match(/\bname=\[([^\]]+)\]/)?.[1] || path.split("/").filter(Boolean).pop() || "Image";
+  return { name, path };
+}
+
+function renderImageAttachment(attachment) {
+  const source = `/api/files/image?path=${encodeURIComponent(attachment.path)}`;
+  return `<figure class="message-attachment message-attachment--image"><a class="message-attachment__preview" href="${source}" target="_blank" rel="noreferrer"><img src="${source}" alt="${escapeHtml(attachment.name)}" loading="lazy"></a><div class="message-attachment__fallback" hidden>Preview unavailable</div><figcaption><span>${escapeHtml(attachment.name)}</span><code>${escapeHtml(attachment.path)}</code></figcaption></figure>`;
+}
+
 function renderMarkdown(value) {
   const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
@@ -518,6 +560,7 @@ function renderMarkdown(value) {
   let inCodeBlock = false;
   let citationLines = [];
   let inMemoryCitation = false;
+  let inFileMentions = false;
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -574,6 +617,14 @@ function renderMarkdown(value) {
       continue;
     }
 
+    const imageDirective = parseImageDirective(line);
+    if (imageDirective) {
+      flushParagraph();
+      flushList();
+      output.push(renderImageAttachment(imageDirective));
+      continue;
+    }
+
     const codeComment = parseCodeCommentDirective(line);
     if (codeComment) {
       flushParagraph();
@@ -588,6 +639,16 @@ function renderMarkdown(value) {
       continue;
     }
 
+    if (inFileMentions) {
+      const attachment = parseFileAttachmentText(line);
+      if (attachment) {
+        flushParagraph();
+        flushList();
+        output.push(renderImageAttachment(attachment));
+        continue;
+      }
+    }
+
     const listItem = line.match(/^[-*]\s+(.+)$/);
     if (listItem) {
       flushParagraph();
@@ -600,7 +661,17 @@ function renderMarkdown(value) {
       flushParagraph();
       flushList();
       const level = heading[1].length;
-      output.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      const headingText = heading[2].trim();
+      if (headingText.toLowerCase() === "my request for codex:") inFileMentions = false;
+      if (inFileMentions) {
+        const attachment = parseFileAttachmentText(headingText);
+        if (attachment) {
+          output.push(renderImageAttachment(attachment));
+          continue;
+        }
+      }
+      output.push(`<h${level}>${renderInlineMarkdown(headingText)}</h${level}>`);
+      if (headingText.toLowerCase() === "files mentioned by the user:") inFileMentions = true;
       continue;
     }
 

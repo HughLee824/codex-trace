@@ -12,6 +12,12 @@ test("HTTP API serves sessions, timeline, tools, subagents, raw events, and doct
   const dir = await mkdtemp(join(tmpdir(), "codex-trace-server-"));
   const sessionsDir = join(dir, "sessions", "2026", "06", "14");
   await mkdir(sessionsDir, { recursive: true });
+  const imagePath = join(dir, "codex-clipboard.png");
+  const textPath = join(dir, "note.txt");
+  const fakeImagePath = join(dir, "fake.png");
+  await writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64"));
+  await writeFile(textPath, "not an image");
+  await writeFile(fakeImagePath, "not an image");
   await writeFile(join(sessionsDir, "rollout-2026-06-14T00-00-00-thread-1.jsonl"), [
     JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1", cwd: "/work", thread_source: "user" } }),
     JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } }),
@@ -56,6 +62,17 @@ test("HTTP API serves sessions, timeline, tools, subagents, raw events, and doct
 
     const raw = await fetchJson(`${base}/api/events/${timeline.events[0].id}/raw`);
     assert.match(raw.rawJson, /session_meta/);
+
+    const image = await fetch(`${base}/api/files/image?path=${encodeURIComponent(imagePath)}`);
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get("content-type"), "image/png");
+    assert.ok((await image.arrayBuffer()).byteLength > 0);
+
+    const text = await fetch(`${base}/api/files/image?path=${encodeURIComponent(textPath)}`);
+    assert.equal(text.status, 415);
+
+    const fakeImage = await fetch(`${base}/api/files/image?path=${encodeURIComponent(fakeImagePath)}`);
+    assert.equal(fakeImage.status, 415);
 
     const doctor = await fetchJson(`${base}/api/doctor`);
     assert.equal(doctor.sessions.status, "ok");

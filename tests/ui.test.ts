@@ -91,6 +91,10 @@ test("timeline messages render common markdown safely", async () => {
     extractFunction(js, "formatCodeCommentLocation"),
     extractFunction(js, "renderCodeComment"),
     extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "isImageAttachmentPath"),
+    extractFunction(js, "parseFileAttachmentText"),
+    extractFunction(js, "parseImageDirective"),
+    extractFunction(js, "renderImageAttachment"),
     extractFunction(js, "renderInlineMarkdown"),
     extractFunction(js, "renderMarkdown"),
     "renderMarkdown;",
@@ -128,6 +132,10 @@ test("timeline messages render review directives as compact audit blocks", async
     extractFunction(js, "formatCodeCommentLocation"),
     extractFunction(js, "renderCodeComment"),
     extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "isImageAttachmentPath"),
+    extractFunction(js, "parseFileAttachmentText"),
+    extractFunction(js, "parseImageDirective"),
+    extractFunction(js, "renderImageAttachment"),
     extractFunction(js, "renderInlineMarkdown"),
     extractFunction(js, "renderMarkdown"),
     "renderMarkdown;",
@@ -160,6 +168,68 @@ test("timeline messages render review directives as compact audit blocks", async
   assert.match(css, /\.review-comment/);
   assert.match(css, /\.review-comment__meta/);
   assert.match(css, /\.memory-citation/);
+});
+
+test("timeline messages render mentioned image files as previews", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const code = [
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "unescapeDirectiveString"),
+    extractFunction(js, "parseDirectiveAttributes"),
+    extractFunction(js, "parseCodeCommentDirective"),
+    extractFunction(js, "formatCodeCommentLocation"),
+    extractFunction(js, "renderCodeComment"),
+    extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "isImageAttachmentPath"),
+    extractFunction(js, "parseFileAttachmentText"),
+    extractFunction(js, "parseImageDirective"),
+    extractFunction(js, "renderImageAttachment"),
+    extractFunction(js, "renderInlineMarkdown"),
+    extractFunction(js, "renderMarkdown"),
+    "renderMarkdown;",
+  ].join("\n");
+  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+
+  const html = renderMarkdown([
+    "# Files mentioned by the user:",
+    "",
+    "## codex-clipboard.png: /var/folders/demo/codex-clipboard.png",
+    "",
+    "## recording.mov: /Users/hui/Desktop/recording.mov",
+    "",
+    "## My request for Codex:",
+    "请看图片",
+    "",
+    "<image name=[Image #1] path=\"/tmp/inline-image.webp\">",
+  ].join("\n"));
+
+  assert.match(html, /<figure class="message-attachment message-attachment--image">/);
+  assert.match(html, /<img src="\/api\/files\/image\?path=%2Fvar%2Ffolders%2Fdemo%2Fcodex-clipboard\.png"/);
+  assert.match(html, /alt="codex-clipboard\.png"/);
+  assert.match(html, /codex-clipboard\.png/);
+  assert.match(html, /\/var\/folders\/demo\/codex-clipboard\.png/);
+  assert.match(html, /<h2>recording\.mov: \/Users\/hui\/Desktop\/recording\.mov<\/h2>/);
+  assert.match(html, /<img src="\/api\/files\/image\?path=%2Ftmp%2Finline-image\.webp"/);
+  assert.match(html, /Image #1/);
+  assert.match(css, /\.message-attachment--image/);
+  assert.match(css, /\.message-attachment--image img/);
+});
+
+test("timeline image previews expose a graceful load failure state", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const renderTimeline = extractFunction(js, "renderTimeline");
+  const attachImageFallbacks = extractFunction(js, "attachImageFallbacks");
+
+  assert.match(renderTimeline, /attachImageFallbacks\(panelEl\)/);
+  assert.match(attachImageFallbacks, /addEventListener\("error"/);
+  assert.match(attachImageFallbacks, /classList\.add\("message-attachment--failed"\)/);
+  assert.match(js, /class="message-attachment__fallback" hidden/);
+  assert.match(js, /Preview unavailable/);
+  assert.match(css, /\.message-attachment--failed \.message-attachment__preview[\s\S]*display: none/);
+  assert.match(css, /\.message-attachment__fallback/);
 });
 
 test("session gallery supports project-first browsing", async () => {

@@ -1,12 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { lstat, readFile } from "node:fs/promises";
+import { extname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runDoctor } from "./doctor.ts";
 import { indexAll } from "./indexer.ts";
 import type { TraceStore } from "./store.ts";
 import type { NormalizedEvent } from "./types.ts";
+
+const MAX_PREVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 
 export interface TraceServerOptions {
   store: TraceStore;
@@ -137,6 +139,11 @@ async function route(
     return;
   }
 
+  if (pathname === "/api/files/image") {
+    await serveLocalImage(url.searchParams.get("path"), response);
+    return;
+  }
+
   if (pathname === "/api/index/rebuild" && request.method === "POST") {
     const result = await indexAll({ sessionsDir: options.sessionsDir, sessionIndexPath: options.sessionIndexPath, store: options.store });
     sendJson(response, 200, result);
@@ -151,6 +158,52 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.end(JSON.stringify(payload));
 }
 
+function sendText(response: ServerResponse, status: number, message: string): void {
+  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  response.end(message);
+}
+
+async function serveLocalImage(filePath: string | null, response: ServerResponse): Promise<void> {
+  if (!filePath || !isAbsolute(filePath)) {
+    sendText(response, 400, "Image path must be absolute");
+    return;
+  }
+  const type = imageContentType(filePath);
+  if (!type) {
+    sendText(response, 415, "Unsupported image type");
+    return;
+  }
+
+  try {
+    const stats = await lstat(filePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      sendText(response, 404, "Image not found");
+      return;
+    }
+    if (stats.size > MAX_PREVIEW_IMAGE_BYTES) {
+      sendText(response, 413, "Image is too large to preview");
+      return;
+    }
+    const content = await readFile(filePath);
+    if (!isSupportedImageContent(type, content)) {
+      sendText(response, 415, "Unsupported image type");
+      return;
+    }
+    response.writeHead(200, {
+      "Cache-Control": "no-store",
+      "Content-Type": type,
+      "X-Content-Type-Options": "nosniff",
+    });
+    response.end(content);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") {
+      sendText(response, 404, "Image not found");
+      return;
+    }
+    throw error;
+  }
+}
+
 async function serveStatic(pathname: string, response: ServerResponse, publicDir: string): Promise<void> {
   const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const safeRelative = relative.includes("..") ? "index.html" : relative;
@@ -162,6 +215,49 @@ async function serveStatic(pathname: string, response: ServerResponse, publicDir
   } catch {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found");
+  }
+}
+
+function isSupportedImageContent(type: string, content: Buffer): boolean {
+  if (type === "image/png") {
+    return content.length >= 8
+      && content[0] === 0x89
+      && content[1] === 0x50
+      && content[2] === 0x4e
+      && content[3] === 0x47
+      && content[4] === 0x0d
+      && content[5] === 0x0a
+      && content[6] === 0x1a
+      && content[7] === 0x0a;
+  }
+  if (type === "image/jpeg") {
+    return content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff;
+  }
+  if (type === "image/gif") {
+    const signature = content.subarray(0, 6).toString("ascii");
+    return signature === "GIF87a" || signature === "GIF89a";
+  }
+  if (type === "image/webp") {
+    return content.length >= 12
+      && content.subarray(0, 4).toString("ascii") === "RIFF"
+      && content.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  if (type === "image/avif") {
+    const brand = content.subarray(8, 12).toString("ascii");
+    return content.length >= 12 && content.subarray(4, 8).toString("ascii") === "ftyp" && (brand === "avif" || brand === "avis");
+  }
+  return false;
+}
+
+function imageContentType(file: string): string | undefined {
+  switch (extname(file).toLowerCase()) {
+    case ".png": return "image/png";
+    case ".jpg": return "image/jpeg";
+    case ".jpeg": return "image/jpeg";
+    case ".gif": return "image/gif";
+    case ".webp": return "image/webp";
+    case ".avif": return "image/avif";
+    default: return undefined;
   }
 }
 

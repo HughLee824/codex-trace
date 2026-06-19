@@ -653,6 +653,60 @@ h1 {
   padding: 10px;
 }
 
+.message-attachment {
+  margin: 0;
+}
+
+.message-attachment--image {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+}
+
+.message-attachment__preview {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  display: block;
+  overflow: hidden;
+}
+
+.message-attachment--failed .message-attachment__preview {
+  display: none;
+}
+
+.message-attachment__fallback {
+  background: var(--canvas);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 14px;
+}
+
+.message-attachment--image img {
+  display: block;
+  max-height: 420px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.message-attachment--image figcaption {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+  line-height: 1.35;
+}
+
+.message-attachment--image figcaption code {
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  padding: 0;
+}
+
 .badge {
   border-width: 0;
   font-size: 12px;

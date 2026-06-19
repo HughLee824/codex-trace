@@ -11,21 +11,26 @@ test("LiveTailer emits only appended complete JSONL events and tolerates partial
   const file = join(dir, "rollout-2026-06-14T00-00-00-thread-1.jsonl");
   await writeFile(file, `${JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1" } })}\n`);
 
-  const events: string[] = [];
-  const tailer = new LiveTailer({ sessionsDir: dir, pollIntervalMs: 25 });
-  tailer.onEvent((event) => events.push(event.eventType));
+  const events: any[] = [];
+  const tailer = new LiveTailer({ sessionsDir: dir, pollIntervalMs: 60_000 });
+  tailer.onEvent((event) => events.push(event));
   await tailer.start();
 
-  await appendFile(file, "{\"timestamp\":\"2026-06-14T00:00:01.000Z\"");
-  await tailer.pollOnce();
-  assert.deepEqual(events, []);
+  try {
+    await appendFile(file, "{\"timestamp\":\"2026-06-14T00:00:01.000Z\"");
+    await tailer.pollOnce();
+    assert.deepEqual(events, []);
 
-  await appendFile(file, ",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"hello\"}}\n");
-  await tailer.pollOnce();
-  assert.deepEqual(events, ["message.user"]);
+    await appendFile(file, ",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"hello\"}}\n");
+    await tailer.pollOnce();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].eventType, "message.user");
+    assert.equal(events[0].threadId, "thread-1");
 
-  const offsets = JSON.parse(await readFile(tailer.statePath, "utf8"));
-  assert.equal(offsets[file].lineCount, 2);
-
-  await tailer.stop();
+    const offsets = JSON.parse(await readFile(tailer.statePath, "utf8"));
+    assert.equal(offsets[file].lineCount, 2);
+    assert.equal(offsets[file].threadId, "thread-1");
+  } finally {
+    await tailer.stop();
+  }
 });

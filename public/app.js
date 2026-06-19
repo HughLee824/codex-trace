@@ -2,7 +2,6 @@ let sessions = [];
 let selected = null;
 let selectedProject = "all";
 let activeTab = "timeline";
-const liveEvents = [];
 
 const sessionsEl = document.getElementById("sessions");
 const projectsEl = document.getElementById("projects");
@@ -36,13 +35,13 @@ backButton.addEventListener("click", () => {
 });
 window.addEventListener("hashchange", renderRoute);
 
-async function loadSessions(q = "") {
+async function loadSessions(q = "", options = {}) {
   sessions = await fetchJson(`/api/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`);
   ensureSelectedProjectExists();
   renderProjects();
   renderSessions();
   statusEl.textContent = `${sessions.length} sessions indexed`;
-  renderRoute();
+  if (options.renderRoute !== false) renderRoute();
 }
 
 function renderSessions() {
@@ -167,14 +166,14 @@ async function renderRoute() {
 }
 
 async function renderSelected() {
-  if (!selected && activeTab !== "live") {
+  if (!selected) {
     panelEl.innerHTML = `<div class="card">No session selected.</div>`;
     return;
   }
   if (activeTab === "timeline") return renderTimeline();
   if (activeTab === "tools") return renderTools();
   if (activeTab === "subagents") return renderSubagents();
-  if (activeTab === "live") return renderLive();
+  if (activeTab === "events") return renderEvents();
 }
 
 async function renderTimeline() {
@@ -183,7 +182,6 @@ async function renderTimeline() {
     fetchJson(`/api/sessions/${encodeURIComponent(selected)}/usage`),
   ]);
   const messageRecords = data.messages || [];
-  const eventRecords = data.events || [];
   const toolRecords = data.toolCalls || data.tools || [];
   const messages = messageRecords.map((message) => {
     const timestamp = formatMessageTimestamp(message.timestamp);
@@ -200,41 +198,18 @@ async function renderTimeline() {
     </div>
   `;
   }).join("");
-  const events = eventRecords.slice(-80).map((event) => `
-    <details class="event-row">
-      <summary>
-        <span class="badge">${escapeHtml(event.eventType)}</span>
-        <span class="event-line">line ${event.lineNo}</span>
-        <span>${escapeHtml(event.textPreview || "")}</span>
-      </summary>
-      <button class="secondary compact" data-raw="${event.id}">Show raw</button>
-      <pre id="raw-${event.id}" hidden></pre>
-    </details>
-  `).join("");
   panelEl.innerHTML = `
     ${renderSessionHero(data.session, [
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
-      ["events", eventRecords.length],
+      ["events", data.events?.length || 0],
     ])}
     ${renderAgentUsage(usage)}
     <section class="timeline-section">
       <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
       ${messages || `<div class="empty-state">No messages captured.</div>`}
     </section>
-    <section class="timeline-section">
-      <div class="section-title"><h3>Raw event stream</h3><span>${eventRecords.length}</span></div>
-      ${events || `<div class="empty-state">No raw events captured.</div>`}
-    </section>
   `;
-  panelEl.querySelectorAll("[data-raw]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const raw = await fetchJson(`/api/events/${button.dataset.raw}/raw`);
-      const target = document.getElementById(`raw-${button.dataset.raw}`);
-      target.hidden = false;
-      target.textContent = JSON.stringify(JSON.parse(raw.rawJson), null, 2);
-    });
-  });
 }
 
 async function renderTools() {
@@ -342,19 +317,50 @@ function renderSubagentCard(edge) {
   `;
 }
 
-function renderLive() {
+async function renderEvents() {
+  const data = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/timeline`);
+  const eventRecords = data.events || [];
+  const events = eventRecords.slice(-120).reverse().map((event) => `
+    <details class="event-row">
+      <summary>
+        <span class="badge">${escapeHtml(event.eventType)}</span>
+        <span class="event-line">line ${event.lineNo}</span>
+        <span>${escapeHtml(event.textPreview || "")}</span>
+      </summary>
+      <button class="secondary compact" data-raw="${event.id}">Show raw</button>
+      <pre id="raw-${event.id}" hidden></pre>
+    </details>
+  `).join("");
   panelEl.innerHTML = `
-    <section class="timeline-section live-section">
-      <div class="section-title"><h3>Live stream</h3><span>${liveEvents.length}</span></div>
-      ${liveEvents.slice(-120).reverse().map((event) => `
-        <div class="event-row">
-          <span class="badge">${escapeHtml(event.eventType)}</span>
-          <span class="badge subtle">${escapeHtml(shortId(event.threadId || ""))}</span>
-          ${escapeHtml(event.textPreview || event.toolName || "")}
-        </div>
-      `).join("") || `<div class="empty-state">Waiting for live events...</div>`}
+    <section class="timeline-section events-section">
+      <div class="section-title"><h3>Raw events</h3><span>${eventRecords.length}</span></div>
+      ${events || `<div class="empty-state">No raw events captured.</div>`}
     </section>
   `;
+  panelEl.querySelectorAll("[data-raw]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const raw = await fetchJson(`/api/events/${button.dataset.raw}/raw`);
+      const target = document.getElementById(`raw-${button.dataset.raw}`);
+      target.hidden = false;
+      target.textContent = JSON.stringify(JSON.parse(raw.rawJson), null, 2);
+    });
+  });
+}
+
+function shouldRefreshSelectedSession(event) {
+  if (!selected) return false;
+  if (event?.threadId && event.threadId === selected) return true;
+  if (!event?.filePath) return false;
+  return sessions.some((session) => session.threadId === selected && session.filePath === event.filePath);
+}
+
+function handleLiveEvent(type, event) {
+  if (type !== "session.updated") return Promise.resolve();
+
+  const refreshSelected = shouldRefreshSelectedSession(event);
+  return loadSessions(searchEl.value, { renderRoute: false }).then(() => {
+    if (refreshSelected) return renderSelected();
+  });
 }
 
 function connectLive() {
@@ -364,9 +370,9 @@ function connectLive() {
   ["session.updated", "turn.started", "tool.started", "tool.completed", "subagent.spawned", "event.appended"].forEach((type) => {
     source.addEventListener(type, (message) => {
       const event = JSON.parse(message.data);
-      liveEvents.push(event);
-      if (activeTab === "live") renderLive();
-      if (type === "session.updated") loadSessions(searchEl.value);
+      handleLiveEvent(type, event).catch(() => {
+        statusEl.textContent = "Live update failed";
+      });
     });
   });
 }

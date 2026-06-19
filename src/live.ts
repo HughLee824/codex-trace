@@ -11,6 +11,7 @@ interface TailState {
   offset: number;
   lineCount: number;
   partial: string;
+  threadId?: string;
 }
 
 export interface LiveTailerOptions {
@@ -41,10 +42,15 @@ export class LiveTailer {
     await this.loadState();
     const files = await findJsonlFiles(this.sessionsDir);
     for (const file of files) {
+      const stats = await safeStat(file);
       if (!this.state.has(file)) {
-        const stats = await safeStat(file);
-        const lineCount = stats ? await countLines(file) : 0;
-        this.state.set(file, { offset: stats?.size ?? 0, lineCount, partial: "" });
+        const summary = stats ? await inspectExistingFile(file) : { lineCount: 0, threadId: undefined };
+        this.state.set(file, { offset: stats?.size ?? 0, lineCount: summary.lineCount, partial: "", threadId: summary.threadId });
+        continue;
+      }
+      const current = this.state.get(file)!;
+      if (stats && !current.threadId) {
+        current.threadId = (await inspectExistingFile(file)).threadId;
       }
     }
     await this.persistState();
@@ -73,6 +79,7 @@ export class LiveTailer {
         current.offset = 0;
         current.lineCount = 0;
         current.partial = "";
+        current.threadId = undefined;
       }
       if (stats.size <= current.offset) continue;
       const chunk = await readRange(file, current.offset, stats.size);
@@ -83,7 +90,8 @@ export class LiveTailer {
       for (const part of parts) {
         if (!part.trim()) continue;
         current.lineCount += 1;
-        const event = normalizeLine(part, current.lineCount);
+        current.threadId = threadIdFromLine(part) ?? current.threadId;
+        const event = normalizeLine(part, current.lineCount, current.threadId);
         (event as any).filePath = file;
         emitted.push(event);
         this.emitter.emit("event", event);
@@ -102,6 +110,7 @@ export class LiveTailer {
           offset: entry.offset ?? 0,
           lineCount: entry.lineCount ?? 0,
           partial: entry.partial ?? "",
+          threadId: entry.threadId,
         });
       }
     } catch {
@@ -127,7 +136,24 @@ async function readRange(path: string, start: number, end: number): Promise<stri
   });
 }
 
-async function countLines(path: string): Promise<number> {
+async function inspectExistingFile(path: string): Promise<{ lineCount: number; threadId?: string }> {
   const content = await readFile(path, "utf8");
-  return content.split(/\n/).filter(Boolean).length;
+  let lineCount = 0;
+  let threadId: string | undefined;
+  for (const line of content.split(/\n/)) {
+    if (!line) continue;
+    lineCount += 1;
+    threadId = threadId ?? threadIdFromLine(line);
+  }
+  return { lineCount, threadId };
+}
+
+function threadIdFromLine(line: string): string | undefined {
+  try {
+    const parsed = JSON.parse(line);
+    const id = parsed?.type === "session_meta" ? parsed.payload?.id : undefined;
+    return id ? String(id) : undefined;
+  } catch {
+    return undefined;
+  }
 }

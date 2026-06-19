@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -43,6 +45,59 @@ test("update command self-updates the global npm package", async () => {
   assert.equal(result.stderr, "");
 });
 
+test("serve reports a clear error when the port is already in use", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-serve-port-"));
+  const sessionsDir = join(dir, "sessions");
+  await mkdir(sessionsDir, { recursive: true });
+
+  const holder = createServer();
+  await listen(holder, 0);
+  const port = (holder.address() as AddressInfo).port;
+
+  try {
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        "--experimental-strip-types",
+        "src/cli.ts",
+        "serve",
+        "--sessions",
+        sessionsDir,
+        "--session-index",
+        join(dir, "session_index.jsonl"),
+        "--trace-home",
+        join(dir, "trace"),
+        "--port",
+        String(port),
+      ], {
+        env: cliTestEnv(),
+        timeout: 5000,
+      }),
+      (error: any) => {
+        assert.equal(error.code, 1);
+        assert.equal(error.stdout, "");
+        assert.match(error.stderr, new RegExp(`127\\.0\\.0\\.1:${port} is already in use`));
+        assert.doesNotMatch(error.stderr, /Unhandled 'error' event|node:events|at Server/);
+        return true;
+      },
+    );
+  } finally {
+    await close(holder);
+  }
+});
+
 function cliTestEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...process.env, NODE_NO_WARNINGS: "1", ...overrides };
+}
+
+function listen(server: Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }

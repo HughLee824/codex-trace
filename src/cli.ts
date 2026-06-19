@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       setTimeout(async () => {
         try {
           await indexFile({ file: event.filePath, store });
-          app.broadcast("session.updated", { filePath: event.filePath });
+          app.broadcast("session.updated", { filePath: event.filePath, threadId: event.threadId });
         } catch (error: any) {
           app.broadcast("index.error", { filePath: event.filePath, error: error.message });
         } finally {
@@ -80,8 +80,13 @@ async function main(): Promise<void> {
       }, 100);
     }
   });
-  await tailer.start();
   await app.listen(config.port);
+  try {
+    await tailer.start();
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   console.log(`codex-trace indexed ${result.indexed} sessions`);
   console.log(`codex-trace running at http://127.0.0.1:${config.port}`);
 }
@@ -141,6 +146,17 @@ async function runSelfUpdate(): Promise<number> {
 }
 
 main().catch((error) => {
-  console.error(error);
+  if (isAddressInUseError(error)) {
+    const address = error.address ?? "127.0.0.1";
+    const port = error.port ?? "unknown";
+    console.error(`codex-trace could not start: ${address}:${port} is already in use.`);
+    console.error("Stop the existing process or choose another port with --port <port>.");
+  } else {
+    console.error(error);
+  }
   process.exitCode = 1;
 });
+
+function isAddressInUseError(error: unknown): error is NodeJS.ErrnoException & { address?: string; port?: number } {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "EADDRINUSE";
+}

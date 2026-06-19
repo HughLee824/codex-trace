@@ -28,6 +28,48 @@ test("opening a child session resets detail view to timeline output", async () =
   assert.match(js, /setActiveTab\(tab\)/);
 });
 
+test("live events refresh the currently selected session detail view", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "thread-1";
+      let activeTab = "timeline";
+      const sessions = [{ threadId: "thread-1", filePath: "/tmp/thread-1.jsonl" }];
+      const searchEl = { value: "needle" };
+      const calls = [];
+      function renderSelected() { calls.push("renderSelected"); }
+      function loadSessions(value, options) {
+        calls.push(["loadSessions", value, options]);
+        return Promise.resolve();
+      }
+    `,
+    extractFunction(js, "shouldRefreshSelectedSession"),
+    extractFunction(js, "handleLiveEvent"),
+    `
+      (async () => {
+
+        await handleLiveEvent("event.appended", { threadId: "thread-1" });
+        await handleLiveEvent("session.updated", { threadId: "thread-2" });
+        await handleLiveEvent("session.updated", { filePath: "/tmp/thread-1.jsonl" });
+        activeTab = "events";
+        await handleLiveEvent("session.updated", { threadId: "thread-1" });
+
+        return calls;
+      })();
+    `,
+  ].join("\n");
+
+  const calls = JSON.parse(JSON.stringify(await vm.runInNewContext(code)));
+
+  assert.deepEqual(calls, [
+    ["loadSessions", "needle", { renderRoute: false }],
+    ["loadSessions", "needle", { renderRoute: false }],
+    "renderSelected",
+    ["loadSessions", "needle", { renderRoute: false }],
+    "renderSelected",
+  ]);
+});
+
 test("timeline messages expose timestamps in a tighter detail layout", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");
@@ -94,10 +136,18 @@ test("timeline renders context usage as a donut card with compact token cards", 
   const renderTimeline = extractFunction(js, "renderTimeline");
 
   assert.doesNotMatch(html, /data-tab="stats"/);
+  assert.match(html, /data-tab="events"/);
+  assert.doesNotMatch(html, /data-tab="live"/);
   assert.doesNotMatch(js, /renderStats/);
+  assert.doesNotMatch(js, /function renderLive/);
+  assert.doesNotMatch(js, /activeTab !== "live"/);
+  assert.doesNotMatch(css, /\.live-section/);
   assert.match(js, /Promise\.all\(\[/);
   assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/usage/);
   assert.match(js, /renderAgentUsage\(usage\)/);
+  assert.doesNotMatch(renderTimeline, /Raw event stream/);
+  assert.doesNotMatch(renderTimeline, /data-raw/);
+  assert.doesNotMatch(renderTimeline, /eventRecords\.slice/);
   assert.doesNotMatch(renderTimeline, /renderSessionHero\(data\.session,[\s\S]*usage\.current/);
   assert.match(js, /renderSessionKind\(session\)/);
   assert.match(js, /Main session/);
@@ -132,6 +182,9 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.doesNotMatch(js, />tokens</);
   assert.match(js, /title="\$\{escapeHtml\(formatNumber\(value\)\)\}"/);
   assert.match(css, /\.usage-grid/);
+  assert.match(css, /\.agent-usage[\s\S]*position: sticky/);
+  assert.match(css, /\.agent-usage[\s\S]*top: 108px/);
+  assert.match(css, /\.agent-usage[\s\S]*z-index: [1-8]/);
   assert.match(css, /grid-template-columns: repeat\(auto-fit, minmax\(104px, 1fr\)\)/);
   assert.match(css, /\.usage-card__value/);
   assert.doesNotMatch(css, /\.usage-card__unit/);
@@ -149,6 +202,18 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.doesNotMatch(css, /\.trace-summary[\s\S]*minmax\(118px, auto\)/);
   assert.match(css, /\.trace-path[\s\S]*text-overflow: ellipsis/);
   assert.match(css, /\.trace-stats span[\s\S]*min-height: 92px/);
+});
+
+test("events view owns raw event stream and raw JSON expansion", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const renderEvents = extractFunction(js, "renderEvents");
+
+  assert.match(renderEvents, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/timeline/);
+  assert.match(renderEvents, /Raw events/);
+  assert.match(renderEvents, /eventRecords\.slice\(-120\)/);
+  assert.match(renderEvents, /data-raw/);
+  assert.match(renderEvents, /\/api\/events\/\$\{button\.dataset\.raw\}\/raw/);
+  assert.match(renderEvents, /JSON\.parse\(raw\.rawJson\)/);
 });
 
 test("subagents view renders compact cards in a multi-column grid", async () => {

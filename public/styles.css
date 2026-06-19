@@ -624,9 +624,14 @@ h1 {
 }
 
 .agent-usage {
+  background: var(--canvas);
   display: grid;
   gap: 12px;
-  margin: -8px 0 32px;
+  margin: -8px 0 24px;
+  padding: 10px 0 12px;
+  position: sticky;
+  top: 108px;
+  z-index: 8;
 }
 
 .usage-grid {
@@ -850,10 +855,6 @@ pre {
   .message-meta {
     display: grid;
   }
-}
-
-.live-section .event-row {
-  background: var(--parchment);
 }
 
 .empty-state {

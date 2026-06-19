@@ -521,6 +521,44 @@ function renderMemoryCitation(raw) {
   return `<details class="memory-citation"><summary>${escapeHtml(label)}</summary><pre>${escapeHtml(raw)}</pre></details>`;
 }
 
+function parseSubagentNotification(value) {
+  const text = String(value ?? "").trim();
+  const openTag = "<subagent_notification>";
+  const closeTag = "</subagent_notification>";
+  if (!text.startsWith(openTag) || !text.endsWith(closeTag)) return null;
+  const payloadText = text.slice(openTag.length, -closeTag.length).trim();
+  try {
+    const payload = JSON.parse(payloadText);
+    const status = payload?.status && typeof payload.status === "object" ? payload.status : {};
+    const statusKey = ["completed", "blocked", "failed", "running"].find((key) => status[key] !== undefined) || "update";
+    const statusValue = status[statusKey];
+    const body = typeof statusValue === "string" ? statusValue : JSON.stringify(statusValue ?? status, null, 2);
+    if (!body || body === "{}") return null;
+    return {
+      agentPath: payload?.agent_path || payload?.agentPath || "",
+      body,
+      statusKey,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function renderSubagentNotification(notification) {
+  const labels = {
+    blocked: "Subagent blocked",
+    completed: "Subagent completed",
+    failed: "Subagent failed",
+    running: "Subagent running",
+    update: "Subagent update",
+  };
+  const label = labels[notification.statusKey] || labels.update;
+  const agent = notification.agentPath
+    ? `<code class="subagent-notification__agent">${escapeHtml(notification.agentPath)}</code>`
+    : "";
+  return `<section class="subagent-notification"><div class="subagent-notification__head"><span class="badge subtle">Subagent</span><strong>${escapeHtml(label)}</strong>${agent}</div><div class="subagent-notification__body">${renderMarkdown(notification.body)}</div></section>`;
+}
+
 function isImageAttachmentPath(filePath) {
   const cleanPath = String(filePath || "").split("?")[0].split("#")[0].trim().toLowerCase();
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"].some((extension) => cleanPath.endsWith(extension));
@@ -551,6 +589,9 @@ function renderImageAttachment(attachment) {
 }
 
 function renderMarkdown(value) {
+  const subagentNotification = parseSubagentNotification(value);
+  if (subagentNotification) return renderSubagentNotification(subagentNotification);
+
   const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
   let paragraph = [];
@@ -560,6 +601,8 @@ function renderMarkdown(value) {
   let inCodeBlock = false;
   let citationLines = [];
   let inMemoryCitation = false;
+  let notificationLines = [];
+  let inSubagentNotification = false;
   let inFileMentions = false;
 
   const flushParagraph = () => {
@@ -579,6 +622,17 @@ function renderMarkdown(value) {
     codeLanguage = "";
     inCodeBlock = false;
   };
+  const flushSubagentNotification = () => {
+    const raw = notificationLines.join("\n");
+    const notification = parseSubagentNotification(raw);
+    if (notification) {
+      output.push(renderSubagentNotification(notification));
+    } else {
+      output.push(`<p>${renderInlineMarkdown(raw).replace(/\n/g, "<br>")}</p>`);
+    }
+    notificationLines = [];
+    inSubagentNotification = false;
+  };
 
   for (const line of lines) {
     const fence = line.match(/^ {0,3}```([A-Za-z0-9_-]+)?\s*$/);
@@ -588,6 +642,12 @@ function renderMarkdown(value) {
       } else {
         codeLines.push(line);
       }
+      continue;
+    }
+
+    if (inSubagentNotification) {
+      notificationLines.push(line);
+      if (line.trim() === "</subagent_notification>") flushSubagentNotification();
       continue;
     }
 
@@ -606,6 +666,14 @@ function renderMarkdown(value) {
       flushList();
       inCodeBlock = true;
       codeLanguage = fence[1] || "";
+      continue;
+    }
+
+    if (line.trim() === "<subagent_notification>") {
+      flushParagraph();
+      flushList();
+      notificationLines = [line];
+      inSubagentNotification = true;
       continue;
     }
 
@@ -680,6 +748,7 @@ function renderMarkdown(value) {
   }
 
   if (inCodeBlock) flushCodeBlock();
+  if (inSubagentNotification) flushSubagentNotification();
   if (inMemoryCitation) output.push(renderMemoryCitation(citationLines.join("\n")));
   flushParagraph();
   flushList();

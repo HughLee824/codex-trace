@@ -91,6 +91,8 @@ test("timeline messages render common markdown safely", async () => {
     extractFunction(js, "formatCodeCommentLocation"),
     extractFunction(js, "renderCodeComment"),
     extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "parseSubagentNotification"),
+    extractFunction(js, "renderSubagentNotification"),
     extractFunction(js, "isImageAttachmentPath"),
     extractFunction(js, "parseFileAttachmentText"),
     extractFunction(js, "parseImageDirective"),
@@ -132,6 +134,8 @@ test("timeline messages render review directives as compact audit blocks", async
     extractFunction(js, "formatCodeCommentLocation"),
     extractFunction(js, "renderCodeComment"),
     extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "parseSubagentNotification"),
+    extractFunction(js, "renderSubagentNotification"),
     extractFunction(js, "isImageAttachmentPath"),
     extractFunction(js, "parseFileAttachmentText"),
     extractFunction(js, "parseImageDirective"),
@@ -170,6 +174,106 @@ test("timeline messages render review directives as compact audit blocks", async
   assert.match(css, /\.memory-citation/);
 });
 
+test("timeline messages render subagent notifications as readable handoff cards", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const code = [
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "unescapeDirectiveString"),
+    extractFunction(js, "parseDirectiveAttributes"),
+    extractFunction(js, "parseCodeCommentDirective"),
+    extractFunction(js, "formatCodeCommentLocation"),
+    extractFunction(js, "renderCodeComment"),
+    extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "parseSubagentNotification"),
+    extractFunction(js, "renderSubagentNotification"),
+    extractFunction(js, "isImageAttachmentPath"),
+    extractFunction(js, "parseFileAttachmentText"),
+    extractFunction(js, "parseImageDirective"),
+    extractFunction(js, "renderImageAttachment"),
+    extractFunction(js, "renderInlineMarkdown"),
+    extractFunction(js, "renderMarkdown"),
+    "renderMarkdown;",
+  ].join("\n");
+  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+
+  const payload = {
+    agent_path: "019edead-4fb1-7231-b447-72bbe96f9b5e",
+    status: {
+      completed: [
+        "Stage 9B handoff:",
+        "",
+        "- packetPath: /Users/hui/.codex/plugins/cache/storewright/workflows/stages/09B-shopify-media-upload.md",
+        "- artifactsWritten: .storewright/runs/tactilery-20260619-001/shopify-media-map.json",
+        "- blockers: Shopify media upload cannot proceed safely.",
+        "",
+        "Validation: shopify-media-map.json passed the Storewright schema validator.",
+      ].join("\n"),
+    },
+  };
+
+  const html = renderMarkdown(`<subagent_notification>\n${JSON.stringify(payload)}\n</subagent_notification>`);
+
+  assert.match(html, /class="subagent-notification"/);
+  assert.match(html, /Subagent completed/);
+  assert.match(html, /019edead-4fb1-7231-b447-72bbe96f9b5e/);
+  assert.match(html, /<p>Stage 9B handoff:<\/p>/);
+  assert.match(html, /<li>packetPath: \/Users\/hui\/\.codex\/plugins\/cache\/storewright\/workflows\/stages\/09B-shopify-media-upload\.md<\/li>/);
+  assert.match(html, /<li>blockers: Shopify media upload cannot proceed safely\.<\/li>/);
+  assert.match(html, /Validation: shopify-media-map\.json passed/);
+  assert.doesNotMatch(html, /&lt;subagent_notification&gt;/);
+  assert.doesNotMatch(html, /&quot;agent_path&quot;/);
+  assert.match(css, /\.subagent-notification/);
+  assert.match(css, /\.subagent-notification__body/);
+});
+
+test("timeline messages render embedded subagent notification blocks with surrounding content", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "unescapeDirectiveString"),
+    extractFunction(js, "parseDirectiveAttributes"),
+    extractFunction(js, "parseCodeCommentDirective"),
+    extractFunction(js, "formatCodeCommentLocation"),
+    extractFunction(js, "renderCodeComment"),
+    extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "parseSubagentNotification"),
+    extractFunction(js, "renderSubagentNotification"),
+    extractFunction(js, "isImageAttachmentPath"),
+    extractFunction(js, "parseFileAttachmentText"),
+    extractFunction(js, "parseImageDirective"),
+    extractFunction(js, "renderImageAttachment"),
+    extractFunction(js, "renderInlineMarkdown"),
+    extractFunction(js, "renderMarkdown"),
+    "renderMarkdown;",
+  ].join("\n");
+  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+  const payload = {
+    agent_path: "019edead-4fb1-7231-b447-72bbe96f9b5e",
+    status: { blocked: "Stage 9B blocked:\n\n- blockers: missing target-bound upload API" },
+  };
+
+  const html = renderMarkdown([
+    `<subagent_notification>`,
+    JSON.stringify(payload),
+    `</subagent_notification>`,
+    "",
+    "---",
+    "继续看这个message渲染，能优化吗？",
+    "<image name=[Image #1] path=\"/tmp/subagent-message.png\">",
+  ].join("\n"));
+
+  assert.match(html, /class="subagent-notification"/);
+  assert.match(html, /Subagent blocked/);
+  assert.match(html, /<li>blockers: missing target-bound upload API<\/li>/);
+  assert.match(html, /继续看这个message渲染/);
+  assert.match(html, /<img src="\/api\/files\/image\?path=%2Ftmp%2Fsubagent-message\.png"/);
+  assert.doesNotMatch(html, /&lt;subagent_notification&gt;/);
+  assert.doesNotMatch(html, /&quot;agent_path&quot;/);
+});
+
 test("timeline messages render mentioned image files as previews", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");
@@ -182,6 +286,8 @@ test("timeline messages render mentioned image files as previews", async () => {
     extractFunction(js, "formatCodeCommentLocation"),
     extractFunction(js, "renderCodeComment"),
     extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "parseSubagentNotification"),
+    extractFunction(js, "renderSubagentNotification"),
     extractFunction(js, "isImageAttachmentPath"),
     extractFunction(js, "parseFileAttachmentText"),
     extractFunction(js, "parseImageDirective"),

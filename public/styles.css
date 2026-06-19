@@ -653,6 +653,52 @@ h1 {
   padding: 10px;
 }
 
+.subagent-notification {
+  background: rgba(42, 98, 161, 0.055);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  display: grid;
+  gap: 10px;
+  padding: 11px 13px;
+}
+
+.subagent-notification__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subagent-notification__head .badge {
+  margin-right: 0;
+}
+
+.subagent-notification__head strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.subagent-notification__agent {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.subagent-notification__body {
+  display: grid;
+  gap: 10px;
+  line-height: 1.45;
+}
+
+.subagent-notification__body > * {
+  margin: 0;
+}
+
+.subagent-notification__body ul {
+  padding-left: 20px;
+}
+
 .message-attachment {
   margin: 0;
 }

@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { findJsonlFiles, pathExists } from "./files.ts";
 import { buildSessionModel } from "./parser.ts";
@@ -11,16 +12,21 @@ export interface IndexAllOptions {
 }
 
 export async function indexAll(options: IndexAllOptions): Promise<{ indexed: number; skipped: number }> {
-  await options.store.initialize();
-  await options.store.clear();
-  const threadNames = options.sessionIndexPath ? await loadThreadNames(options.sessionIndexPath) : new Map<string, string>();
-  const files = await findJsonlFiles(options.sessionsDir);
-  let indexed = 0;
-  for (const file of files) {
-    await indexFile({ file, store: options.store, threadNames });
-    indexed += 1;
+  const releaseLock = await acquireRebuildLock(options.store.dbPath);
+  try {
+    await options.store.initialize();
+    await options.store.clear();
+    const threadNames = options.sessionIndexPath ? await loadThreadNames(options.sessionIndexPath) : new Map<string, string>();
+    const files = await findJsonlFiles(options.sessionsDir);
+    let indexed = 0;
+    for (const file of files) {
+      await indexFile({ file, store: options.store, threadNames });
+      indexed += 1;
+    }
+    return { indexed, skipped: 0 };
+  } finally {
+    await releaseLock();
   }
-  return { indexed, skipped: 0 };
 }
 
 export async function indexFile(options: { file: string; store: TraceStore; threadNames?: Map<string, string> }): Promise<void> {
@@ -49,4 +55,29 @@ async function loadThreadNames(path: string): Promise<Map<string, string>> {
     }
   }
   return names;
+}
+
+async function acquireRebuildLock(dbPath: string): Promise<() => Promise<void>> {
+  const lockDir = `${dbPath}.rebuild.lock`;
+  await mkdir(dirname(dbPath), { recursive: true });
+  try {
+    await mkdir(lockDir);
+  } catch (error: any) {
+    if (error?.code !== "EEXIST") throw error;
+    throw new Error([
+      `codex-trace index rebuild already running for ${dbPath}`,
+      `Lock: ${lockDir}`,
+      "Stop the other codex-trace serve/reindex process, or remove the lock directory if it is stale.",
+    ].join("\n"));
+  }
+  try {
+    await writeFile(join(lockDir, "owner.json"), JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    }, null, 2));
+  } catch (error) {
+    await rm(lockDir, { recursive: true, force: true });
+    throw error;
+  }
+  return () => rm(lockDir, { recursive: true, force: true });
 }

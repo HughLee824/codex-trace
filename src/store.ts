@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 
 import type { AgentUsageRecord, SessionModel, SessionRecord, SubagentEdge, TokenUsageRecord, ToolCallRecord, UsageStats } from "./types.ts";
 
+const SQLITE_BUSY_TIMEOUT_MS = 10_000;
+
 function q(value: unknown): string {
   if (value === undefined || value === null) return "NULL";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
@@ -343,15 +345,38 @@ export class TraceStore {
   }
 
   private exec(sql: string): void {
-    const result = spawnSync("sqlite3", [this.dbPath], { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
-    if (result.status !== 0) throw new Error(result.stderr || result.stdout || `sqlite3 exited ${result.status}`);
+    const result = spawnSync("sqlite3", this.sqliteArgs(), { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
+    if (result.status !== 0) throw this.sqliteError(result);
   }
 
   private query(sql: string): any[] {
-    const result = spawnSync("sqlite3", ["-json", this.dbPath], { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
-    if (result.status !== 0) throw new Error(result.stderr || result.stdout || `sqlite3 exited ${result.status}`);
+    const result = spawnSync("sqlite3", this.sqliteArgs("-json"), { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
+    if (result.status !== 0) throw this.sqliteError(result);
     const text = result.stdout.trim();
     return text ? JSON.parse(text) : [];
+  }
+
+  private sqliteArgs(...extra: string[]): string[] {
+    return [
+      ...extra,
+      "-bail",
+      "-cmd",
+      `.timeout ${SQLITE_BUSY_TIMEOUT_MS}`,
+      this.dbPath,
+    ];
+  }
+
+  private sqliteError(result: ReturnType<typeof spawnSync>): Error {
+    const message = result.stderr?.toString() || result.stdout?.toString() || `sqlite3 exited ${result.status}`;
+    if (/database is locked/.test(message)) {
+      return new Error([
+        `codex-trace index database is locked: ${this.dbPath}`,
+        "Another codex-trace serve/reindex process may be writing to the same index.",
+        "Stop the other process or use --trace-home/--index for a separate index.",
+        message.trim(),
+      ].join("\n"));
+    }
+    return new Error(message);
   }
 }
 

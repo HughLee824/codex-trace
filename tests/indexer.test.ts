@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +12,7 @@ test("indexes sessions into sqlite and exposes timeline, tools, subagents, and r
   const dir = await mkdtemp(join(tmpdir(), "codex-trace-index-"));
   const sessionsDir = join(dir, "sessions");
   const dayDir = join(sessionsDir, "2026", "06", "14");
-  await import("node:fs/promises").then((fs) => fs.mkdir(dayDir, { recursive: true }));
+  await mkdir(dayDir, { recursive: true });
   await writeFile(join(dir, "session_index.jsonl"), `${JSON.stringify({ id: "parent-1", thread_name: "Parent", updated_at: "2026-06-14T00:00:09.000Z" })}\n`);
   await writeFile(join(dayDir, "rollout-2026-06-14T00-00-00-parent-1.jsonl"), [
     JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "parent-1", cwd: "/work", thread_source: "user" } }),
@@ -69,3 +70,73 @@ test("indexes sessions into sqlite and exposes timeline, tools, subagents, and r
   assert.equal(childUsage.current.threadId, "child-1");
   assert.equal(childUsage.current.contextUsedTokens, 160);
 });
+
+test("sqlite writes wait for transient index locks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-lock-"));
+  const dbPath = join(dir, "index.sqlite");
+  const store = new TraceStore(dbPath);
+  await store.initialize();
+
+  const lock = holdSqliteWriteLock(dbPath);
+  await waitForSqliteLock(dbPath);
+
+  await store.clear();
+  await lock;
+});
+
+test("full reindex fails clearly when another rebuild is active", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-rebuild-lock-"));
+  const sessionsDir = join(dir, "sessions");
+  const dbPath = join(dir, "index.sqlite");
+  await mkdir(sessionsDir, { recursive: true });
+  await mkdir(`${dbPath}.rebuild.lock`);
+
+  let initializeCalled = false;
+  const store = {
+    dbPath,
+    initialize: async () => {
+      initializeCalled = true;
+      throw new Error("initialize should not run while rebuild is locked");
+    },
+  } as unknown as TraceStore;
+  await assert.rejects(
+    indexAll({ sessionsDir, store }),
+    /codex-trace index rebuild already running[\s\S]*\.rebuild\.lock/,
+  );
+  assert.equal(initializeCalled, false);
+});
+
+function holdSqliteWriteLock(dbPath: string): Promise<void> {
+  const child = spawn("python3", ["-c", `
+import sqlite3
+import sys
+import time
+
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("BEGIN EXCLUSIVE")
+connection.execute("CREATE TABLE IF NOT EXISTS lock_holder (id INTEGER)")
+connection.execute("INSERT INTO lock_holder VALUES (1)")
+time.sleep(1)
+connection.commit()
+connection.close()
+`, dbPath], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(stderr || `sqlite3 exited ${code}`)));
+  });
+}
+
+async function waitForSqliteLock(dbPath: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = spawnSync("sqlite3", ["-cmd", "PRAGMA busy_timeout=0;", dbPath], {
+      input: "BEGIN IMMEDIATE;\nROLLBACK;",
+      encoding: "utf8",
+    });
+    if (result.status !== 0 && /database is locked/.test(result.stderr)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("sqlite write lock was not acquired");
+}

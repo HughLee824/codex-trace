@@ -593,6 +593,66 @@ h1 {
   margin: 0;
 }
 
+.review-comment {
+  background: rgba(42, 98, 161, 0.06);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  display: grid;
+  gap: 9px;
+  padding: 11px 13px;
+}
+
+.review-comment__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-comment__head .badge {
+  margin-right: 0;
+}
+
+.review-comment__head strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.review-comment__body {
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.review-comment__meta {
+  color: var(--muted);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.memory-citation {
+  border-left: 3px solid var(--soft-line);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+.memory-citation summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.memory-citation pre {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+}
+
 .badge {
   border-width: 0;
   font-size: 12px;

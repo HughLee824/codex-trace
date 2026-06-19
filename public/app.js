@@ -457,6 +457,57 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function unescapeDirectiveString(value) {
+  return String(value ?? "").replace(/\\(["\\])/g, "$1");
+}
+
+function parseDirectiveAttributes(value) {
+  const attributes = {};
+  const pattern = /([A-Za-z_][A-Za-z0-9_-]*)=("((?:\\.|[^"\\])*)"|[^\s]+)/g;
+  let match;
+  while ((match = pattern.exec(value))) {
+    attributes[match[1]] = match[3] === undefined ? match[2] : unescapeDirectiveString(match[3]);
+  }
+  return attributes;
+}
+
+function parseCodeCommentDirective(line) {
+  const prefix = `::code-comment${String.fromCharCode(123)}`;
+  const trimmed = String(line ?? "").trim();
+  if (!trimmed.startsWith(prefix) || !trimmed.endsWith(String.fromCharCode(125))) return null;
+  const attributes = parseDirectiveAttributes(trimmed.slice(prefix.length, -1));
+  return attributes.title || attributes.body ? attributes : null;
+}
+
+function formatCodeCommentLocation(file, start, end) {
+  const normalizedFile = String(file || "").replace(/\\/g, "/");
+  const parts = normalizedFile.split("/").filter(Boolean);
+  const shortFile = parts.slice(-2).join("/") || normalizedFile || "Unknown file";
+  const startLine = String(start || "").trim();
+  const endLine = String(end || "").trim();
+  if (startLine && endLine && endLine !== startLine) return `${shortFile}:${startLine}-${endLine}`;
+  if (startLine) return `${shortFile}:${startLine}`;
+  return shortFile;
+}
+
+function renderCodeComment(comment) {
+  const title = comment.title || "Code comment";
+  const body = comment.body ? `<p class="review-comment__body">${renderInlineMarkdown(comment.body)}</p>` : "";
+  const metaItems = [];
+  if (comment.file) metaItems.push(formatCodeCommentLocation(comment.file, comment.start, comment.end));
+  if (comment.priority) metaItems.push(`priority ${comment.priority}`);
+  const meta = metaItems.length
+    ? `<div class="review-comment__meta">${metaItems.map(escapeHtml).join(" · ")}</div>`
+    : "";
+  return `<section class="review-comment"><div class="review-comment__head"><span class="badge subtle">Code comment</span><strong>${escapeHtml(title)}</strong></div>${body}${meta}</section>`;
+}
+
+function renderMemoryCitation(raw) {
+  const citationCount = (String(raw || "").match(/^[^<\n][^\n]*\|note=\[/gm) || []).length;
+  const label = `Memory citations${citationCount ? ` · ${citationCount}` : ""}`;
+  return `<details class="memory-citation"><summary>${escapeHtml(label)}</summary><pre>${escapeHtml(raw)}</pre></details>`;
+}
+
 function renderMarkdown(value) {
   const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
@@ -465,6 +516,8 @@ function renderMarkdown(value) {
   let codeLines = [];
   let codeLanguage = "";
   let inCodeBlock = false;
+  let citationLines = [];
+  let inMemoryCitation = false;
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -495,11 +548,37 @@ function renderMarkdown(value) {
       continue;
     }
 
+    if (inMemoryCitation) {
+      citationLines.push(line);
+      if (line.trim() === "</oai-mem-citation>") {
+        output.push(renderMemoryCitation(citationLines.join("\n")));
+        citationLines = [];
+        inMemoryCitation = false;
+      }
+      continue;
+    }
+
     if (fence) {
       flushParagraph();
       flushList();
       inCodeBlock = true;
       codeLanguage = fence[1] || "";
+      continue;
+    }
+
+    if (line.trim() === "<oai-mem-citation>") {
+      flushParagraph();
+      flushList();
+      citationLines = [line];
+      inMemoryCitation = true;
+      continue;
+    }
+
+    const codeComment = parseCodeCommentDirective(line);
+    if (codeComment) {
+      flushParagraph();
+      flushList();
+      output.push(renderCodeComment(codeComment));
       continue;
     }
 
@@ -530,6 +609,7 @@ function renderMarkdown(value) {
   }
 
   if (inCodeBlock) flushCodeBlock();
+  if (inMemoryCitation) output.push(renderMemoryCitation(citationLines.join("\n")));
   flushParagraph();
   flushList();
   return output.join("");

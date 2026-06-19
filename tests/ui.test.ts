@@ -85,6 +85,12 @@ test("timeline messages render common markdown safely", async () => {
   const code = [
     extractFunction(js, "escapeHtml"),
     extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "unescapeDirectiveString"),
+    extractFunction(js, "parseDirectiveAttributes"),
+    extractFunction(js, "parseCodeCommentDirective"),
+    extractFunction(js, "formatCodeCommentLocation"),
+    extractFunction(js, "renderCodeComment"),
+    extractFunction(js, "renderMemoryCitation"),
     extractFunction(js, "renderInlineMarkdown"),
     extractFunction(js, "renderMarkdown"),
     "renderMarkdown;",
@@ -108,6 +114,52 @@ test("timeline messages render common markdown safely", async () => {
   assert.match(html, /<ul>[\s\S]*<li>first<\/li>[\s\S]*<li>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/li>[\s\S]*<\/ul>/);
   assert.match(html, /<pre><code class="language-json">\{&quot;ok&quot;: true\}<\/code><\/pre>/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test("timeline messages render review directives as compact audit blocks", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const code = [
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "isSafeMarkdownHref"),
+    extractFunction(js, "unescapeDirectiveString"),
+    extractFunction(js, "parseDirectiveAttributes"),
+    extractFunction(js, "parseCodeCommentDirective"),
+    extractFunction(js, "formatCodeCommentLocation"),
+    extractFunction(js, "renderCodeComment"),
+    extractFunction(js, "renderMemoryCitation"),
+    extractFunction(js, "renderInlineMarkdown"),
+    extractFunction(js, "renderMarkdown"),
+    "renderMarkdown;",
+  ].join("\n");
+  const renderMarkdown = vm.runInNewContext(code) as (value: string) => string;
+
+  const html = renderMarkdown([
+    "Found one actionable issue.",
+    "",
+    "::code-comment{title=\"[P2] Hidden compact/full row still leaves grid gap\" body=\"`.agent-usage` keeps an extra gap.\" file=\"/Users/hui/Somnus/Project/codex-trace/public/styles.css\" start=629 priority=2}",
+    "No other issues.",
+    "",
+    "<oai-mem-citation>",
+    "<citation_entries>",
+    "MEMORY.md:50-54|note=[context token usage UI history]",
+    "</citation_entries>",
+    "</oai-mem-citation>",
+  ].join("\n"));
+
+  assert.match(html, /class="review-comment"/);
+  assert.match(html, /\[P2\] Hidden compact\/full row still leaves grid gap/);
+  assert.match(html, /<code>\.agent-usage<\/code> keeps an extra gap\./);
+  assert.match(html, /public\/styles\.css:629/);
+  assert.match(html, /priority 2/);
+  assert.match(html, /<details class="memory-citation">/);
+  assert.match(html, /Memory citations · 1/);
+  assert.match(html, /MEMORY\.md:50-54\|note=\[context token usage UI history\]/);
+  assert.doesNotMatch(html, /::code-comment/);
+  assert.doesNotMatch(html, /<oai-mem-citation>/);
+  assert.match(css, /\.review-comment/);
+  assert.match(css, /\.review-comment__meta/);
+  assert.match(css, /\.memory-citation/);
 });
 
 test("session gallery supports project-first browsing", async () => {

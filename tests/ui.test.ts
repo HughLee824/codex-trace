@@ -394,6 +394,71 @@ test("timeline messages expose timestamps in a tighter detail layout", async () 
   assert.match(css, /\.message-time/);
 });
 
+test("timeline interleaves tool calls with messages by source line", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "thread-1";
+      let activeTab = "timeline";
+      let renderSequence = 1;
+      const panelEl = {
+        innerHTML: "",
+        querySelector: () => null,
+        querySelectorAll: () => [],
+      };
+      function fetchJson(url) {
+        if (url.endsWith("/usage")) return Promise.resolve({});
+        if (url.endsWith("/timeline")) {
+          return Promise.resolve({
+            session: { threadName: "Thread" },
+            messages: [
+              { role: "user", source: "event_msg", text: "before tool", lineNo: 10 },
+              { role: "assistant", phase: "commentary", source: "response_item", text: "after tool", lineNo: 30 },
+            ],
+            tools: [
+              { callId: "call-1", name: "exec_command", arguments: "{\\"cmd\\":\\"pwd\\"}", output: "/work", startedLine: 20 },
+            ],
+            events: [],
+          });
+        }
+        throw new Error(url);
+      }
+      function renderSessionHero() { return ""; }
+      function renderAgentUsage() { return ""; }
+      function shouldRenderStickyUsageCompact() { return false; }
+      function updateStickyUsageDensity() {}
+      function attachImageFallbacks() {}
+      function renderMarkdown(value) { return value; }
+      function formatMessageTimestamp() { return ""; }
+      function formatDuration() { return ""; }
+    `,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "isCurrentRender"),
+    js.includes("function renderTimelineItem(") ? extractFunction(js, "renderTimelineItem") : "",
+    js.includes("function renderTimelineMessage(") ? extractFunction(js, "renderTimelineMessage") : "",
+    js.includes("function renderTimelineTool(") ? extractFunction(js, "renderTimelineTool") : "",
+    js.includes("function buildTimelineItems(") ? extractFunction(js, "buildTimelineItems") : "",
+    extractFunction(js, "renderTimeline"),
+    `
+      (async () => {
+        await renderTimeline("thread-1", 1, "timeline");
+        return panelEl.innerHTML;
+      })();
+    `,
+  ].join("\n");
+
+  const html = await vm.runInNewContext(code);
+  const beforeIndex = html.indexOf("before tool");
+  const toolIndex = html.indexOf("exec_command");
+  const afterIndex = html.indexOf("after tool");
+
+  assert.ok(beforeIndex !== -1);
+  assert.ok(toolIndex > beforeIndex);
+  assert.ok(afterIndex > toolIndex);
+  assert.match(html, /class="timeline-tool/);
+});
+
 test("timeline messages render common markdown safely", async () => {
   const js = await readFile("public/app.js", "utf8");
   const renderMarkdown = getRenderMarkdown(js);

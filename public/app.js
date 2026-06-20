@@ -248,9 +248,54 @@ async function renderTimeline(threadId = selected, sequence = renderSequence, ta
   if (!isCurrentRender(sequence, threadId, tab)) return;
   const messageRecords = data.messages || [];
   const toolRecords = data.toolCalls || data.tools || [];
-  const messages = messageRecords.map((message) => {
-    const timestamp = formatMessageTimestamp(message.timestamp);
-    return `
+  const timelineItems = buildTimelineItems(messageRecords, toolRecords);
+  const timeline = timelineItems.map(renderTimelineItem).join("");
+  const compactUsage = shouldRenderStickyUsageCompact();
+  panelEl.innerHTML = `
+    ${renderSessionHero(data.session, [
+      ["messages", messageRecords.length],
+      ["tools", toolRecords.length],
+      ["events", data.events?.length || 0],
+    ], threadId)}
+    ${renderAgentUsage(usage, compactUsage)}
+    <section class="timeline-section">
+      <div class="section-title"><h3>Timeline</h3><span>${timelineItems.length}</span></div>
+      ${timeline || `<div class="empty-state">No timeline items captured.</div>`}
+    </section>
+  `;
+  updateStickyUsageDensity();
+  attachImageFallbacks(panelEl);
+}
+
+function buildTimelineItems(messages, tools) {
+  return [
+    ...messages.map((message, index) => ({
+      kind: "message",
+      lineNo: Number.isFinite(Number(message.lineNo)) ? Number(message.lineNo) : Number.MAX_SAFE_INTEGER,
+      sourceOrder: index * 2,
+      message,
+    })),
+    ...tools.map((tool, index) => ({
+      kind: "tool",
+      lineNo: Number.isFinite(Number(tool.startedLine)) ? Number(tool.startedLine) : Number(tool.outputLine),
+      sourceOrder: index * 2 + 1,
+      tool,
+    })),
+  ].sort((left, right) => {
+    const leftLine = Number.isFinite(left.lineNo) ? left.lineNo : Number.MAX_SAFE_INTEGER;
+    const rightLine = Number.isFinite(right.lineNo) ? right.lineNo : Number.MAX_SAFE_INTEGER;
+    return leftLine - rightLine || left.sourceOrder - right.sourceOrder;
+  });
+}
+
+function renderTimelineItem(item) {
+  if (item.kind === "tool") return renderTimelineTool(item.tool);
+  return renderTimelineMessage(item.message);
+}
+
+function renderTimelineMessage(message) {
+  const timestamp = formatMessageTimestamp(message.timestamp);
+  return `
     <div class="message ${escapeHtml(message.role)}">
       <div class="message-meta">
         <div class="message-kicker">
@@ -262,22 +307,30 @@ async function renderTimeline(threadId = selected, sequence = renderSequence, ta
       <div class="message-body">${renderMarkdown(message.text)}</div>
     </div>
   `;
-  }).join("");
-  const compactUsage = shouldRenderStickyUsageCompact();
-  panelEl.innerHTML = `
-    ${renderSessionHero(data.session, [
-      ["messages", messageRecords.length],
-      ["tools", toolRecords.length],
-      ["events", data.events?.length || 0],
-    ], threadId)}
-    ${renderAgentUsage(usage, compactUsage)}
-    <section class="timeline-section">
-      <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
-      ${messages || `<div class="empty-state">No messages captured.</div>`}
-    </section>
+}
+
+function renderTimelineTool(tool) {
+  const hasExitCode = tool.exitCode !== null && tool.exitCode !== undefined;
+  const failed = hasExitCode && Number(tool.exitCode) !== 0;
+  const output = tool.output || tool.stderr || tool.stdout || "";
+  return `
+    <details class="timeline-tool ${failed ? "bad" : ""}">
+      <summary>
+        <span class="badge">${escapeHtml(tool.name)}</span>
+        <span>${escapeHtml(shortId(tool.callId))}</span>
+        ${hasExitCode ? `<span class="exit-code">exit ${escapeHtml(tool.exitCode)}</span>` : ""}
+        ${tool.durationMs ? `<span class="timeline-tool__duration">${escapeHtml(formatDuration(tool.durationMs))}</span>` : ""}
+      </summary>
+      <div class="timeline-tool__body">
+        ${tool.cwd ? `<div class="meta">${escapeHtml(tool.cwd)}</div>` : ""}
+        <h4>Arguments</h4>
+        <pre>${escapeHtml(tool.arguments || "")}</pre>
+        <h4>Output</h4>
+        <pre>${escapeHtml(output)}</pre>
+        ${tool.changedFiles ? `<div class="meta">Changed: ${escapeHtml(tool.changedFiles.join(", "))}</div>` : ""}
+      </div>
+    </details>
   `;
-  updateStickyUsageDensity();
-  attachImageFallbacks(panelEl);
 }
 
 function attachImageFallbacks(root) {

@@ -70,6 +70,49 @@ test("live events refresh the currently selected session detail view", async () 
   ]);
 });
 
+test("session cards show recent activity time", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = null;
+      let selectedProject = "all";
+      const sessions = [{
+        threadId: "thread-1",
+        threadName: "Recent work",
+        threadSource: "user",
+        cwd: "/work/codex-trace",
+        filePath: "/tmp/thread-1.jsonl",
+        updatedAt: "2026-06-14T00:00:08.000Z",
+        startedAt: "2026-06-14T00:00:00.000Z",
+        lineCount: 42,
+      }];
+      const sessionsHeadingEl = { textContent: "" };
+      const sessionsCountEl = { textContent: "" };
+      const sessionsEl = { innerHTML: "", querySelectorAll: () => [] };
+      function selectSession() {}
+    `,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "formatMessageTimestamp"),
+    extractFunction(js, "formatSessionActiveTime"),
+    extractFunction(js, "deriveProject"),
+    extractFunction(js, "getGallerySessions"),
+    extractFunction(js, "filterSessionsByProject"),
+    extractFunction(js, "getProjectSummary"),
+    extractFunction(js, "renderSessions"),
+    `
+      renderSessions();
+      sessionsEl.innerHTML;
+    `,
+  ].join("\n");
+
+  const html = await vm.runInNewContext(code);
+
+  assert.match(html, /Recent work/);
+  assert.match(html, /Active /);
+  assert.match(html, /42 lines/);
+});
+
 test("timeline messages expose timestamps in a tighter detail layout", async () => {
   const js = await readFile("public/app.js", "utf8");
   const css = await readFile("public/styles.css", "utf8");

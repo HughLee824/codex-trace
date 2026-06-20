@@ -362,10 +362,15 @@ h1 {
   color: var(--muted);
   display: flex;
   font-size: 12px;
+  gap: 14px;
   justify-content: space-between;
   line-height: 1;
   margin-top: 24px;
   padding-top: 16px;
+}
+
+.session-foot__meta {
+  text-align: right;
 }
 
 .detail-head {

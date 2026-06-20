@@ -256,6 +256,9 @@ export function buildSessionModel(filePath: string, lines: string[]): SessionMod
         session.unlinkedSubagentKind = payload.source.subagent.other;
       }
     }
+    if (parsed?.timestamp && (!session.updatedAt || parsed.timestamp > session.updatedAt)) {
+      session.updatedAt = parsed.timestamp;
+    }
 
     const event = normalizeLine(line, lineNo, session.threadId);
     if (event.turnId) currentTurnId = event.turnId;

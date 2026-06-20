@@ -110,6 +110,28 @@ test("refreshes thread names from session index without rebuilding sessions", as
   assert.equal((await store.getTimeline("thread-1")).messages.length, 1);
 });
 
+test("lists sessions by latest activity time", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-active-sort-"));
+  const sessionsDir = join(dir, "sessions");
+  const dayDir = join(sessionsDir, "2026", "06", "14");
+  await mkdir(dayDir, { recursive: true });
+  await writeFile(join(dayDir, "rollout-2026-06-14T00-00-00-thread-old-active.jsonl"), [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-old-active", cwd: "/work", thread_source: "user" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:10:00.000Z", type: "event_msg", payload: { type: "agent_message", message: "later", phase: "commentary" } }),
+  ].join("\n") + "\n");
+  await writeFile(join(dayDir, "rollout-2026-06-14T00-05-00-thread-new-idle.jsonl"), [
+    JSON.stringify({ timestamp: "2026-06-14T00:05:00.000Z", type: "session_meta", payload: { id: "thread-new-idle", cwd: "/work", thread_source: "user" } }),
+  ].join("\n") + "\n");
+
+  const store = new TraceStore(join(dir, "index.sqlite"));
+  await store.initialize();
+  await indexAll({ sessionsDir, store });
+
+  const sessions = await store.listSessions();
+  assert.equal(sessions[0].threadId, "thread-old-active");
+  assert.equal(sessions[0].updatedAt, "2026-06-14T00:10:00.000Z");
+});
+
 test("live file reindex preserves delayed thread names when using a stale name snapshot", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-trace-thread-name-race-"));
   const sessionsDir = join(dir, "sessions");

@@ -19,6 +19,7 @@ test("normalizes user, assistant, tool, exec, patch, and turn events", () => {
   const model = buildSessionModel("/tmp/rollout.jsonl", lines);
 
   assert.equal(model.session.threadId, "thread-1");
+  assert.equal(model.session.updatedAt, "2026-06-14T00:00:08.000Z");
   assert.equal(model.turns[0].userMessage, "hello");
   assert.equal(model.turns[0].lastAgentMessage, "done");
   assert.equal(model.messages.find((m) => m.eventType === "message.assistant.commentary")?.text, "working");

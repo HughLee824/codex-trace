@@ -62,7 +62,7 @@ function renderSessions() {
       <span class="session-path">${escapeHtml(session.cwd || session.filePath || "")}</span>
       <span class="session-foot">
         <span>${escapeHtml(project.label)}</span>
-        <span>${session.lineCount || 0} lines</span>
+        <span class="session-foot__meta">${escapeHtml([formatSessionActiveTime(session.updatedAt || session.startedAt), `${session.lineCount || 0} lines`].filter(Boolean).join(" · "))}</span>
       </span>
     </button>
   `;
@@ -868,6 +868,11 @@ function formatMessageTimestamp(timestamp) {
   if (date.toDateString() === now.toDateString()) return time;
   const day = date.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
   return `${day} ${time}`;
+}
+
+function formatSessionActiveTime(timestamp) {
+  const formatted = formatMessageTimestamp(timestamp);
+  return formatted ? `Active ${formatted}` : "";
 }
 
 function renderSessionHero(session, stats = []) {

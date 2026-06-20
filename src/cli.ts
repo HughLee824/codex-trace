@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { runDoctor } from "./doctor.ts";
-import { indexAll, indexFile } from "./indexer.ts";
+import { indexAll, indexFile, loadThreadNames, refreshThreadNames } from "./indexer.ts";
 import { LiveTailer } from "./live.ts";
 import { createTraceServer } from "./server.ts";
 import { TraceStore } from "./store.ts";
@@ -63,6 +63,7 @@ async function main(): Promise<void> {
     logsPath: config.logsPath,
   });
   const tailer = new LiveTailer({ sessionsDir: config.sessionsDir, statePath: config.liveStatePath, pollIntervalMs: 1000 });
+  const threadNameTimer = startThreadNameRefresh({ sessionIndexPath: config.sessionIndexPath, store, app, pollIntervalMs: 1000 });
   let reindexing = new Set<string>();
   tailer.onEvent((event: any) => {
     app.broadcastEvent(event);
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
       reindexing.add(event.filePath);
       setTimeout(async () => {
         try {
-          await indexFile({ file: event.filePath, store });
+          await indexFile({ file: event.filePath, store, threadNames: await loadThreadNames(config.sessionIndexPath) });
           app.broadcast("session.updated", { filePath: event.filePath, threadId: event.threadId });
         } catch (error: any) {
           app.broadcast("index.error", { filePath: event.filePath, error: error.message });
@@ -84,11 +85,62 @@ async function main(): Promise<void> {
   try {
     await tailer.start();
   } catch (error) {
+    clearInterval(threadNameTimer);
     await app.close();
     throw error;
   }
   console.log(`codex-trace indexed ${result.indexed} sessions`);
   console.log(`codex-trace running at http://127.0.0.1:${config.port}`);
+}
+
+function startThreadNameRefresh(options: {
+  sessionIndexPath: string;
+  store: TraceStore;
+  app: ReturnType<typeof createTraceServer>;
+  pollIntervalMs: number;
+}): NodeJS.Timeout {
+  let lastSignature: string | undefined;
+  let refreshing = false;
+  const timer = setInterval(() => {
+    if (refreshing) return;
+    refreshing = true;
+    refreshThreadNamesIfChanged(options, lastSignature)
+      .then((result) => {
+        if (result.signature) lastSignature = result.signature;
+      })
+      .catch((error: any) => {
+        options.app.broadcast("index.error", { filePath: options.sessionIndexPath, error: error.message });
+      })
+      .finally(() => {
+        refreshing = false;
+      });
+  }, options.pollIntervalMs);
+  timer.unref?.();
+  return timer;
+}
+
+async function refreshThreadNamesIfChanged(
+  options: { sessionIndexPath: string; store: TraceStore; app: ReturnType<typeof createTraceServer> },
+  lastSignature: string | undefined,
+): Promise<{ signature?: string }> {
+  const signature = await fileSignature(options.sessionIndexPath);
+  if (!signature || signature === lastSignature) return { signature };
+
+  const changed = await refreshThreadNames({ sessionIndexPath: options.sessionIndexPath, store: options.store });
+  for (const session of changed) {
+    options.app.broadcast("session.updated", { filePath: session.filePath, threadId: session.threadId });
+  }
+  return { signature };
+}
+
+async function fileSignature(path: string): Promise<string | undefined> {
+  try {
+    const stats = await stat(path);
+    return `${stats.size}:${stats.mtimeMs}`;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 function readConfig(args: string[]): RuntimeConfig {

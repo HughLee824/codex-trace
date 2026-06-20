@@ -195,6 +195,23 @@ export class TraceStore {
     this.exec(statements.join("\n"));
   }
 
+  async updateThreadNames(threadNames: Map<string, string>): Promise<SessionRecord[]> {
+    if (threadNames.size === 0) return [];
+    const existing = this.query(`SELECT thread_id AS threadId, file_path AS filePath, thread_name AS threadName FROM sessions WHERE thread_id IN (${Array.from(threadNames.keys()).map(q).join(", ")});`) as SessionRecord[];
+    const changed = existing.filter((session) => {
+      const nextName = threadNames.get(session.threadId);
+      return nextName !== undefined && nextName !== session.threadName;
+    });
+    if (changed.length === 0) return [];
+
+    this.exec([
+      "BEGIN;",
+      ...changed.map((session) => `UPDATE sessions SET thread_name = ${q(threadNames.get(session.threadId))} WHERE thread_id = ${q(session.threadId)};`),
+      "COMMIT;",
+    ].join("\n"));
+    return changed.map((session) => ({ ...session, threadName: threadNames.get(session.threadId) }));
+  }
+
   async listSessions(filters: { active?: string; cwd?: string; source?: string; q?: string } = {}): Promise<SessionRecord[]> {
     const where: string[] = [];
     if (filters.cwd) where.push(`cwd LIKE ${q(`%${filters.cwd}%`)}`);

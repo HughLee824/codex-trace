@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { findJsonlFiles, pathExists } from "./files.ts";
 import { buildSessionModel } from "./parser.ts";
 import type { TraceStore } from "./store.ts";
+import type { SessionRecord } from "./types.ts";
 
 export interface IndexAllOptions {
   sessionsDir: string;
@@ -38,11 +39,19 @@ export async function indexFile(options: { file: string; store: TraceStore; thre
   model.session.fileSize = stats.size;
   model.session.mtimeMs = stats.mtimeMs;
   model.session.updatedAt = model.session.updatedAt ?? stats.mtime.toISOString();
-  if (options.threadNames?.has(model.session.threadId)) model.session.threadName = options.threadNames.get(model.session.threadId);
+  if (options.threadNames?.has(model.session.threadId)) {
+    model.session.threadName = options.threadNames.get(model.session.threadId);
+  } else {
+    model.session.threadName = (await options.store.getSession(model.session.threadId))?.threadName;
+  }
   await options.store.upsertModel(model);
 }
 
-async function loadThreadNames(path: string): Promise<Map<string, string>> {
+export async function refreshThreadNames(options: { sessionIndexPath: string; store: TraceStore }): Promise<SessionRecord[]> {
+  return options.store.updateThreadNames(await loadThreadNames(options.sessionIndexPath));
+}
+
+export async function loadThreadNames(path: string): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   if (!(await pathExists(path))) return names;
   const lines = (await readFile(path, "utf8")).split(/\n/).filter(Boolean);

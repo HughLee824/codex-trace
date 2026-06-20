@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { indexAll } from "../src/indexer.ts";
+import { indexAll, indexFile, refreshThreadNames } from "../src/indexer.ts";
 import { TraceStore } from "../src/store.ts";
 
 test("indexes sessions into sqlite and exposes timeline, tools, subagents, and raw events", async () => {
@@ -82,6 +82,57 @@ test("sqlite writes wait for transient index locks", async () => {
 
   await store.clear();
   await lock;
+});
+
+test("refreshes thread names from session index without rebuilding sessions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-thread-name-"));
+  const sessionsDir = join(dir, "sessions");
+  const dayDir = join(sessionsDir, "2026", "06", "14");
+  const sessionIndexPath = join(dir, "session_index.jsonl");
+  await mkdir(dayDir, { recursive: true });
+  await writeFile(sessionIndexPath, "");
+  await writeFile(join(dayDir, "rollout-2026-06-14T00-00-00-thread-1.jsonl"), [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1", cwd: "/work", thread_source: "user" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "hello" } }),
+  ].join("\n") + "\n");
+
+  const store = new TraceStore(join(dir, "index.sqlite"));
+  await store.initialize();
+  await indexAll({ sessionsDir, sessionIndexPath, store });
+  assert.equal((await store.getSession("thread-1"))?.threadName ?? undefined, undefined);
+
+  await writeFile(sessionIndexPath, `${JSON.stringify({ id: "thread-1", thread_name: "Delayed title", updated_at: "2026-06-14T00:00:09.000Z" })}\n`);
+  const changed = await refreshThreadNames({ sessionIndexPath, store });
+
+  assert.deepEqual(changed.map((session) => session.threadId), ["thread-1"]);
+  assert.equal(changed[0].filePath.endsWith("rollout-2026-06-14T00-00-00-thread-1.jsonl"), true);
+  assert.equal((await store.getSession("thread-1"))?.threadName, "Delayed title");
+  assert.equal((await store.getTimeline("thread-1")).messages.length, 1);
+});
+
+test("live file reindex preserves delayed thread names when using a stale name snapshot", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-thread-name-race-"));
+  const sessionsDir = join(dir, "sessions");
+  const dayDir = join(sessionsDir, "2026", "06", "14");
+  const sessionIndexPath = join(dir, "session_index.jsonl");
+  const sessionPath = join(dayDir, "rollout-2026-06-14T00-00-00-thread-1.jsonl");
+  await mkdir(dayDir, { recursive: true });
+  await writeFile(sessionIndexPath, "");
+  await writeFile(sessionPath, [
+    JSON.stringify({ timestamp: "2026-06-14T00:00:00.000Z", type: "session_meta", payload: { id: "thread-1", cwd: "/work", thread_source: "user" } }),
+    JSON.stringify({ timestamp: "2026-06-14T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "hello" } }),
+  ].join("\n") + "\n");
+
+  const store = new TraceStore(join(dir, "index.sqlite"));
+  await store.initialize();
+  await indexAll({ sessionsDir, sessionIndexPath, store });
+  const staleThreadNames = new Map<string, string>();
+
+  await writeFile(sessionIndexPath, `${JSON.stringify({ id: "thread-1", thread_name: "Delayed title", updated_at: "2026-06-14T00:00:09.000Z" })}\n`);
+  await refreshThreadNames({ sessionIndexPath, store });
+  await indexFile({ file: sessionPath, store, threadNames: staleThreadNames });
+
+  assert.equal((await store.getSession("thread-1"))?.threadName, "Delayed title");
 });
 
 test("full reindex fails clearly when another rebuild is active", async () => {

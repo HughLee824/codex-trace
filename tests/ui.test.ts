@@ -463,6 +463,13 @@ test("timeline interleaves tool calls with messages by source line", async () =>
     `,
     extractFunction(js, "escapeHtml"),
     extractFunction(js, "shortId"),
+    extractFunction(js, "formatTokenAmount"),
+    js.includes("function formatToolLimitDuration(") ? extractFunction(js, "formatToolLimitDuration") : "",
+    js.includes("function parseToolArgumentsJson(") ? extractFunction(js, "parseToolArgumentsJson") : "",
+    js.includes("function renderToolArgumentOptions(") ? extractFunction(js, "renderToolArgumentOptions") : "",
+    js.includes("function formatToolArgumentValue(") ? extractFunction(js, "formatToolArgumentValue") : "",
+    js.includes("function renderTimelineToolArguments(") ? extractFunction(js, "renderTimelineToolArguments") : "",
+    js.includes("function renderTimelineToolOutput(") ? extractFunction(js, "renderTimelineToolOutput") : "",
     extractFunction(js, "isCurrentRender"),
     js.includes("function renderTimelineItem(") ? extractFunction(js, "renderTimelineItem") : "",
     js.includes("function renderTimelineMessage(") ? extractFunction(js, "renderTimelineMessage") : "",
@@ -486,6 +493,57 @@ test("timeline interleaves tool calls with messages by source line", async () =>
   assert.ok(toolIndex > beforeIndex);
   assert.ok(afterIndex > toolIndex);
   assert.match(html, /class="timeline-tool/);
+});
+
+test("timeline tool blocks prioritize command details over call ids", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const renderTool = new Function([
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "formatDuration"),
+    extractFunction(js, "formatTokenAmount"),
+    js.includes("function formatToolLimitDuration(") ? extractFunction(js, "formatToolLimitDuration") : "",
+    js.includes("function parseToolArgumentsJson(") ? extractFunction(js, "parseToolArgumentsJson") : "",
+    js.includes("function renderToolArgumentOptions(") ? extractFunction(js, "renderToolArgumentOptions") : "",
+    js.includes("function formatToolArgumentValue(") ? extractFunction(js, "formatToolArgumentValue") : "",
+    js.includes("function renderTimelineToolArguments(") ? extractFunction(js, "renderTimelineToolArguments") : "",
+    js.includes("function renderTimelineToolOutput(") ? extractFunction(js, "renderTimelineToolOutput") : "",
+    extractFunction(js, "renderTimelineTool"),
+    "return renderTimelineTool;",
+  ].join("\n"))();
+
+  const html = renderTool({
+    callId: "call_verbose_identifier_eCOE",
+    name: "exec_command",
+    arguments: JSON.stringify({
+      cmd: "sed -n '1,260p' /tmp/input.json",
+      workdir: "/Users/hui/Somnus/Project/codex-trace",
+      yield_time_ms: 10000,
+      max_output_tokens: 20000,
+      sandbox_permissions: "require_escalated",
+      shell: "zsh",
+    }),
+    output: "Chunk ID: 620143\nWall time: 0.0000 seconds",
+    durationMs: 1234,
+    exitCode: 0,
+  });
+  const summaryHtml = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+
+  assert.match(summaryHtml, /title="call_verbose_identifier_eCOE"/);
+  assert.doesNotMatch(summaryHtml, />\s*call_verbose_identifier_eCOE\s*</);
+  assert.match(html, /<dt>Command<\/dt>/);
+  assert.match(html, /sed -n &#039;1,260p&#039; \/tmp\/input\.json/);
+  assert.match(html, /<dt>Workdir<\/dt>/);
+  assert.match(html, /codex-trace/);
+  assert.match(html, /<dt>Limits<\/dt>/);
+  assert.match(html, /10s/);
+  assert.match(html, /20K tokens/);
+  assert.match(html, /<dt>Options<\/dt>/);
+  assert.match(html, /sandbox_permissions/);
+  assert.match(html, /require_escalated/);
+  assert.match(html, /shell/);
+  assert.match(html, /zsh/);
+  assert.match(html, /class="timeline-tool__terminal"/);
 });
 
 test("timeline messages render common markdown safely", async () => {

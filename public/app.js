@@ -312,24 +312,89 @@ function renderTimelineTool(tool) {
   const hasExitCode = tool.exitCode !== null && tool.exitCode !== undefined;
   const failed = hasExitCode && Number(tool.exitCode) !== 0;
   const output = tool.output || tool.stderr || tool.stdout || "";
+  const title = tool.callId ? ` title="${escapeHtml(tool.callId)}"` : "";
   return `
     <details class="timeline-tool ${failed ? "bad" : ""}">
-      <summary>
+      <summary${title}>
         <span class="badge">${escapeHtml(tool.name)}</span>
-        <span>${escapeHtml(shortId(tool.callId))}</span>
         ${hasExitCode ? `<span class="exit-code">exit ${escapeHtml(tool.exitCode)}</span>` : ""}
         ${tool.durationMs ? `<span class="timeline-tool__duration">${escapeHtml(formatDuration(tool.durationMs))}</span>` : ""}
       </summary>
       <div class="timeline-tool__body">
-        ${tool.cwd ? `<div class="meta">${escapeHtml(tool.cwd)}</div>` : ""}
-        <h4>Arguments</h4>
-        <pre>${escapeHtml(tool.arguments || "")}</pre>
-        <h4>Output</h4>
-        <pre>${escapeHtml(output)}</pre>
+        ${renderTimelineToolArguments(tool)}
+        ${renderTimelineToolOutput(output)}
         ${tool.changedFiles ? `<div class="meta">Changed: ${escapeHtml(tool.changedFiles.join(", "))}</div>` : ""}
       </div>
     </details>
   `;
+}
+
+function renderTimelineToolArguments(tool) {
+  const args = parseToolArgumentsJson(tool.arguments);
+  if (tool.name === "exec_command" && args) {
+    const workdir = args.workdir || tool.cwd;
+    const options = renderToolArgumentOptions(args, ["cmd", "workdir", "yield_time_ms", "max_output_tokens"]);
+    const limits = [
+      args.yield_time_ms ? formatToolLimitDuration(args.yield_time_ms) : "",
+      args.max_output_tokens ? `${formatTokenAmount(args.max_output_tokens)} tokens` : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <section class="timeline-tool__section">
+        <h4>Arguments</h4>
+        <dl class="timeline-tool__arguments">
+          ${args.cmd ? `<div><dt>Command</dt><dd><code>${escapeHtml(args.cmd)}</code></dd></div>` : ""}
+          ${workdir ? `<div><dt>Workdir</dt><dd><code>${escapeHtml(workdir)}</code></dd></div>` : ""}
+          ${limits ? `<div><dt>Limits</dt><dd>${escapeHtml(limits)}</dd></div>` : ""}
+          ${options ? `<div><dt>Options</dt><dd>${options}</dd></div>` : ""}
+        </dl>
+      </section>
+    `;
+  }
+  const prettyArgs = args ? JSON.stringify(args, null, 2) : tool.arguments || "";
+  return `
+    <section class="timeline-tool__section">
+      <h4>Arguments</h4>
+      <pre>${escapeHtml(prettyArgs)}</pre>
+    </section>
+  `;
+}
+
+function renderToolArgumentOptions(args, primaryKeys) {
+  const primary = new Set(primaryKeys);
+  return Object.keys(args)
+    .filter((key) => !primary.has(key) && args[key] !== undefined && args[key] !== null && args[key] !== "")
+    .map((key) => `${escapeHtml(key)}: <code>${escapeHtml(formatToolArgumentValue(args[key]))}</code>`)
+    .join(" · ");
+}
+
+function formatToolArgumentValue(value) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function renderTimelineToolOutput(output) {
+  if (!output) return "";
+  return `
+    <section class="timeline-tool__section">
+      <h4>Output</h4>
+      <pre class="timeline-tool__terminal">${escapeHtml(output)}</pre>
+    </section>
+  `;
+}
+
+function parseToolArgumentsJson(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatToolLimitDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1).replace(/\.0$/, "")}s`;
 }
 
 function attachImageFallbacks(root) {

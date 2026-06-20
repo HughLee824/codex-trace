@@ -878,8 +878,48 @@ h1 {
 
 .timeline-tool__body {
   display: grid;
-  gap: 8px;
+  gap: 14px;
   margin-top: 14px;
+}
+
+.timeline-tool__section {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-tool__arguments {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.timeline-tool__arguments div {
+  align-items: baseline;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.timeline-tool__arguments dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timeline-tool__arguments dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.timeline-tool__arguments code {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  font-size: 13px;
+  padding: 3px 6px;
+}
+
+.timeline-tool__terminal {
+  margin-top: 0;
 }
 
 .agent-usage {

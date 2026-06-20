@@ -38,6 +38,7 @@ test("normalizes user, assistant, tool, exec, patch, and turn events", () => {
 test("normalizeLine marks unknown or invalid input without throwing", () => {
   assert.equal(normalizeLine("{bad", 1, "thread-x").eventType, "raw.unknown");
   assert.equal(normalizeLine(JSON.stringify({ type: "compacted", payload: {} }), 2, "thread-x").eventType, "context.compacted");
+  assert.equal(normalizeLine(JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: {} } }), 3, "thread-x").eventType, "usage.token_count");
 });
 
 test("buildSessionModel creates a fallback turn when task_started has no turn id", () => {
@@ -124,6 +125,12 @@ test("buildSessionModel records latest token and context usage", () => {
 
   const model = buildSessionModel("/tmp/rollout.jsonl", lines);
 
+  assert.deepEqual(model.events.map((event) => event.eventType), [
+    "raw.unknown",
+    "turn.started",
+    "usage.token_count",
+    "usage.token_count",
+  ]);
   assert.deepEqual(model.usage, {
     threadId: "thread-1",
     inputTokens: 1800,

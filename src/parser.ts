@@ -159,6 +159,7 @@ export function normalizeLine(line: string, lineNo: number, fallbackThreadId = "
   }
   if (parsed.type === "event_msg" && payload.type === "task_started") eventType = "turn.started";
   if (parsed.type === "event_msg" && payload.type === "task_complete") eventType = "turn.completed";
+  if (parsed.type === "event_msg" && payload.type === "token_count") eventType = "usage.token_count";
   if (parsed.type === "event_msg" && payload.type === "exec_command_end") {
     eventType = "tool.exec.end";
     toolName = "exec_command";

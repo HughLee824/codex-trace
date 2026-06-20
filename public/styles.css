@@ -543,6 +543,7 @@ h1 {
 
 .message,
 .timeline-tool,
+.timeline-event,
 .event-row,
 .subagent-card,
 .empty-state {
@@ -874,6 +875,48 @@ h1 {
 
 .timeline-tool {
   background: var(--pearl);
+}
+
+.timeline-event {
+  background: rgba(42, 98, 161, 0.045);
+  border-left: 3px solid var(--soft-line);
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.timeline-event--raw-unknown {
+  border-left-color: #a15c2a;
+}
+
+.timeline-event__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-event__head .badge {
+  margin-right: 0;
+}
+
+.timeline-event__head strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.timeline-event__meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timeline-event__body {
+  color: var(--muted);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .timeline-tool__body {

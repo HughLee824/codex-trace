@@ -471,7 +471,13 @@ test("timeline interleaves tool calls with messages by source line", async () =>
     js.includes("function renderTimelineToolArguments(") ? extractFunction(js, "renderTimelineToolArguments") : "",
     js.includes("function renderTimelineToolOutput(") ? extractFunction(js, "renderTimelineToolOutput") : "",
     extractFunction(js, "isCurrentRender"),
+    js.includes("function getTurnById(") ? extractFunction(js, "getTurnById") : "",
+    js.includes("function shouldRenderTimelineEvent(") ? extractFunction(js, "shouldRenderTimelineEvent") : "",
+    js.includes("function getTimelineEventLabel(") ? extractFunction(js, "getTimelineEventLabel") : "",
+    js.includes("function getTimelineEventMeta(") ? extractFunction(js, "getTimelineEventMeta") : "",
+    js.includes("function buildTimelineEventItems(") ? extractFunction(js, "buildTimelineEventItems") : "",
     js.includes("function renderTimelineItem(") ? extractFunction(js, "renderTimelineItem") : "",
+    js.includes("function renderTimelineEvent(") ? extractFunction(js, "renderTimelineEvent") : "",
     js.includes("function renderTimelineMessage(") ? extractFunction(js, "renderTimelineMessage") : "",
     js.includes("function renderTimelineTool(") ? extractFunction(js, "renderTimelineTool") : "",
     js.includes("function buildTimelineItems(") ? extractFunction(js, "buildTimelineItems") : "",
@@ -493,6 +499,110 @@ test("timeline interleaves tool calls with messages by source line", async () =>
   assert.ok(toolIndex > beforeIndex);
   assert.ok(afterIndex > toolIndex);
   assert.match(html, /class="timeline-tool/);
+});
+
+test("timeline surfaces high-signal events without duplicating raw tool lifecycle", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const code = [
+    `
+      let selected = "thread-1";
+      let activeTab = "timeline";
+      let renderSequence = 1;
+      const panelEl = {
+        innerHTML: "",
+        querySelector: () => null,
+        querySelectorAll: () => [],
+      };
+      function fetchJson(url) {
+        if (url.endsWith("/usage")) return Promise.resolve({});
+        if (url.endsWith("/timeline")) {
+          return Promise.resolve({
+            session: { threadName: "Thread" },
+            turns: [
+              { turnId: "turn-1", durationMs: 1500, status: "completed" },
+            ],
+            messages: [
+              { role: "user", source: "event_msg", text: "before marker", lineNo: 10 },
+              { role: "assistant", phase: "final_answer", source: "event_msg", text: "after marker", lineNo: 60 },
+            ],
+            tools: [
+              { callId: "call-1", name: "exec_command", arguments: "{\\"cmd\\":\\"pwd\\"}", output: "/work", startedLine: 25 },
+            ],
+            events: [
+              { id: 1, eventType: "raw.unknown", topType: "session_meta", lineNo: 1, textPreview: "session_meta" },
+              { id: 2, eventType: "turn.started", turnId: "turn-1", lineNo: 5, textPreview: "task_started" },
+              { id: 3, eventType: "message.user", lineNo: 10, textPreview: "before marker" },
+              { id: 4, eventType: "tool.call", toolName: "exec_command", callId: "call-1", lineNo: 25, textPreview: "exec_command" },
+              { id: 5, eventType: "tool.output", callId: "call-1", lineNo: 26, textPreview: "/work" },
+              { id: 6, eventType: "context.compacted", lineNo: 35, textPreview: "context_compacted" },
+              { id: 7, eventType: "raw.unknown", topType: "invalid", lineNo: 45, textPreview: "{bad json" },
+              { id: 8, eventType: "turn.completed", turnId: "turn-1", lineNo: 55, textPreview: "task_complete" },
+            ],
+          });
+        }
+        throw new Error(url);
+      }
+      function renderSessionHero() { return ""; }
+      function renderAgentUsage() { return ""; }
+      function shouldRenderStickyUsageCompact() { return false; }
+      function updateStickyUsageDensity() {}
+      function attachImageFallbacks() {}
+      function renderMarkdown(value) { return value; }
+      function formatMessageTimestamp() { return ""; }
+      function formatDuration(ms) { return ms === 1500 ? "1.5s" : String(ms); }
+    `,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "formatTokenAmount"),
+    js.includes("function formatToolLimitDuration(") ? extractFunction(js, "formatToolLimitDuration") : "",
+    js.includes("function parseToolArgumentsJson(") ? extractFunction(js, "parseToolArgumentsJson") : "",
+    js.includes("function renderToolArgumentOptions(") ? extractFunction(js, "renderToolArgumentOptions") : "",
+    js.includes("function formatToolArgumentValue(") ? extractFunction(js, "formatToolArgumentValue") : "",
+    js.includes("function renderTimelineToolArguments(") ? extractFunction(js, "renderTimelineToolArguments") : "",
+    js.includes("function renderTimelineToolOutput(") ? extractFunction(js, "renderTimelineToolOutput") : "",
+    extractFunction(js, "isCurrentRender"),
+    js.includes("function getTurnById(") ? extractFunction(js, "getTurnById") : "",
+    js.includes("function shouldRenderTimelineEvent(") ? extractFunction(js, "shouldRenderTimelineEvent") : "",
+    js.includes("function getTimelineEventLabel(") ? extractFunction(js, "getTimelineEventLabel") : "",
+    js.includes("function getTimelineEventMeta(") ? extractFunction(js, "getTimelineEventMeta") : "",
+    js.includes("function buildTimelineEventItems(") ? extractFunction(js, "buildTimelineEventItems") : "",
+    js.includes("function renderTimelineItem(") ? extractFunction(js, "renderTimelineItem") : "",
+    js.includes("function renderTimelineEvent(") ? extractFunction(js, "renderTimelineEvent") : "",
+    js.includes("function renderTimelineMessage(") ? extractFunction(js, "renderTimelineMessage") : "",
+    js.includes("function renderTimelineTool(") ? extractFunction(js, "renderTimelineTool") : "",
+    js.includes("function buildTimelineItems(") ? extractFunction(js, "buildTimelineItems") : "",
+    extractFunction(js, "renderTimeline"),
+    `
+      (async () => {
+        await renderTimeline("thread-1", 1, "timeline");
+        return panelEl.innerHTML;
+      })();
+    `,
+  ].join("\n");
+
+  const html = await vm.runInNewContext(code);
+  const turnStartIndex = html.indexOf("Turn started");
+  const beforeIndex = html.indexOf("before marker");
+  const toolIndex = html.indexOf("exec_command");
+  const compactedIndex = html.indexOf("Context compacted");
+  const rawIndex = html.indexOf("Unrecognized event");
+  const turnCompleteIndex = html.indexOf("Turn completed");
+  const afterIndex = html.indexOf("after marker");
+
+  assert.ok(turnStartIndex !== -1);
+  assert.ok(beforeIndex > turnStartIndex);
+  assert.ok(toolIndex > beforeIndex);
+  assert.ok(compactedIndex > toolIndex);
+  assert.ok(rawIndex > compactedIndex);
+  assert.ok(turnCompleteIndex > rawIndex);
+  assert.ok(afterIndex > turnCompleteIndex);
+  assert.match(html, /1\.5s/);
+  assert.match(html, /\{bad json/);
+  assert.doesNotMatch(html, /session_meta/);
+  assert.doesNotMatch(html, />tool\.call</);
+  assert.doesNotMatch(html, />tool\.output</);
+  assert.match(css, /\.timeline-event/);
 });
 
 test("timeline tool blocks prioritize command details over call ids", async () => {

@@ -12,6 +12,7 @@ export type NormalizedEventType =
   | "turn.started"
   | "turn.completed"
   | "context.compacted"
+  | "usage.token_count"
   | "raw.unknown";
 
 export interface SessionRecord {

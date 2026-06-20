@@ -247,7 +247,9 @@ async function renderTimeline(threadId = selected, sequence = renderSequence, ta
   if (!isCurrentRender(sequence, threadId, tab)) return;
   const messageRecords = data.messages || [];
   const toolRecords = data.toolCalls || data.tools || [];
-  const timelineItems = buildTimelineItems(messageRecords, toolRecords);
+  const eventRecords = data.events || [];
+  const turnRecords = data.turns || [];
+  const timelineItems = buildTimelineItems(messageRecords, toolRecords, eventRecords, turnRecords);
   const timeline = timelineItems.map(renderTimelineItem).join("");
   const compactUsage = shouldRenderStickyUsageCompact();
   panelEl.innerHTML = `
@@ -266,18 +268,19 @@ async function renderTimeline(threadId = selected, sequence = renderSequence, ta
   attachImageFallbacks(panelEl);
 }
 
-function buildTimelineItems(messages, tools) {
+function buildTimelineItems(messages, tools, events = [], turns = []) {
   return [
+    ...buildTimelineEventItems(events, turns),
     ...messages.map((message, index) => ({
       kind: "message",
       lineNo: Number.isFinite(Number(message.lineNo)) ? Number(message.lineNo) : Number.MAX_SAFE_INTEGER,
-      sourceOrder: index * 2,
+      sourceOrder: index * 10 + 1,
       message,
     })),
     ...tools.map((tool, index) => ({
       kind: "tool",
       lineNo: Number.isFinite(Number(tool.startedLine)) ? Number(tool.startedLine) : Number(tool.outputLine),
-      sourceOrder: index * 2 + 1,
+      sourceOrder: index * 10 + 2,
       tool,
     })),
   ].sort((left, right) => {
@@ -288,8 +291,69 @@ function buildTimelineItems(messages, tools) {
 }
 
 function renderTimelineItem(item) {
+  if (item.kind === "event") return renderTimelineEvent(item.event, item.turn);
   if (item.kind === "tool") return renderTimelineTool(item.tool);
   return renderTimelineMessage(item.message);
+}
+
+function buildTimelineEventItems(events, turns) {
+  const turnsById = getTurnById(turns);
+  return events
+    .filter(shouldRenderTimelineEvent)
+    .map((event, index) => ({
+      kind: "event",
+      lineNo: Number.isFinite(Number(event.lineNo)) ? Number(event.lineNo) : Number.MAX_SAFE_INTEGER,
+      sourceOrder: index * 10,
+      event,
+      turn: event.turnId ? turnsById.get(event.turnId) : undefined,
+    }));
+}
+
+function getTurnById(turns) {
+  return new Map((turns || []).filter((turn) => turn?.turnId).map((turn) => [turn.turnId, turn]));
+}
+
+function shouldRenderTimelineEvent(event) {
+  if (event.eventType === "turn.started" || event.eventType === "turn.completed") return true;
+  if (event.eventType === "context.compacted") return true;
+  if (event.eventType === "raw.unknown") return event.topType !== "session_meta";
+  return false;
+}
+
+function renderTimelineEvent(event, turn) {
+  const label = getTimelineEventLabel(event.eventType);
+  const meta = getTimelineEventMeta(event, turn);
+  const className = String(event.eventType || "unknown").replace(/[^A-Za-z0-9_-]/g, "-");
+  const preview = event.eventType === "raw.unknown" && event.textPreview
+    ? `<div class="timeline-event__body">${escapeHtml(event.textPreview)}</div>`
+    : "";
+  return `
+    <article class="timeline-event timeline-event--${escapeHtml(className)}">
+      <div class="timeline-event__head">
+        <span class="badge subtle">Event</span>
+        <strong>${escapeHtml(label)}</strong>
+        ${meta ? `<span class="timeline-event__meta">${escapeHtml(meta)}</span>` : ""}
+      </div>
+      ${preview}
+    </article>
+  `;
+}
+
+function getTimelineEventLabel(eventType) {
+  const labels = {
+    "turn.started": "Turn started",
+    "turn.completed": "Turn completed",
+    "context.compacted": "Context compacted",
+    "raw.unknown": "Unrecognized event",
+  };
+  return labels[eventType] || eventType || "Event";
+}
+
+function getTimelineEventMeta(event, turn) {
+  const parts = [];
+  if (Number.isFinite(Number(event.lineNo))) parts.push(`line ${event.lineNo}`);
+  if (event.eventType === "turn.completed" && turn?.durationMs) parts.push(formatDuration(turn.durationMs));
+  return parts.join(" · ");
 }
 
 function renderTimelineMessage(message) {

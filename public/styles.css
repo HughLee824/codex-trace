@@ -544,7 +544,6 @@ h1 {
 .message,
 .timeline-tool,
 .event-row,
-.tool,
 .subagent-card,
 .empty-state {
   background: var(--canvas);
@@ -860,8 +859,7 @@ h1 {
 }
 
 .event-row summary,
-.timeline-tool summary,
-.tool summary {
+.timeline-tool summary {
   cursor: pointer;
   overflow-wrap: anywhere;
 }
@@ -882,11 +880,6 @@ h1 {
   display: grid;
   gap: 8px;
   margin-top: 14px;
-}
-
-.tool-grid {
-  display: grid;
-  gap: 12px;
 }
 
 .agent-usage {
@@ -1080,7 +1073,6 @@ h1 {
   transform: translateY(0);
 }
 
-.tool h3,
 .timeline-tool h4 {
   font-size: 14px;
   font-weight: 600;
@@ -1092,12 +1084,10 @@ h1 {
   margin: 6px 0 0;
 }
 
-.tool.bad,
 .timeline-tool.bad {
   border-color: var(--danger);
 }
 
-.tool.bad .exit-code,
 .timeline-tool.bad .exit-code {
   color: var(--danger);
   font-weight: 600;

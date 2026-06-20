@@ -28,6 +28,34 @@ test("opening a child session resets detail view to timeline output", async () =
   assert.match(js, /setActiveTab\(tab\)/);
 });
 
+test("detail navigation omits the standalone tools tab", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "thread-1";
+      let selectedSession = null;
+      const sessions = [{ threadId: "thread-1", threadSource: "user" }];
+    `,
+    extractFunction(js, "getSelectedSession"),
+    extractFunction(js, "isSubagentSession"),
+    extractFunction(js, "getAvailableDetailTabs"),
+    `
+      ({
+        userTabs: getAvailableDetailTabs({ threadSource: "user" }),
+        subagentTabs: getAvailableDetailTabs({ threadSource: "subagent" }),
+      });
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.doesNotMatch(html, /data-tab="tools"/);
+  assert.deepEqual(Array.from(result.userTabs), ["timeline", "subagents", "events"]);
+  assert.deepEqual(Array.from(result.subagentTabs), ["timeline", "events"]);
+  assert.doesNotMatch(js, /activeTab === "tools"/);
+});
+
 test("subagent detail chrome links back to the parent and hides the subagents tab", async () => {
   const html = await readFile("public/index.html", "utf8");
   const js = await readFile("public/app.js", "utf8");
@@ -48,7 +76,7 @@ test("subagent detail chrome links back to the parent and hides the subagents ta
         agentNickname: "Normalize store intake",
       }];
       const toggles = [];
-      const buttons = ["timeline", "tools", "subagents", "events"].map((tab) => ({
+      const buttons = ["timeline", "subagents", "events"].map((tab) => ({
         dataset: { tab },
         hidden: false,
         classList: { toggle: (name, enabled) => toggles.push([tab, name, enabled]) },
@@ -68,7 +96,7 @@ test("subagent detail chrome links back to the parent and hides the subagents ta
     extractFunction(js, "syncDetailControls"),
     `
       syncDetailControls();
-      ({ activeTab, parentHidden: parentButton.hidden, parentTitle: parentButton.title, subagentsHidden: buttons[2].hidden, toggles });
+      ({ activeTab, parentHidden: parentButton.hidden, parentTitle: parentButton.title, subagentsHidden: buttons[1].hidden, toggles });
     `,
   ].join("\n");
 
@@ -94,7 +122,7 @@ test("subagent detail chrome uses selected metadata when the gallery is filtered
       };
       let activeTab = "subagents";
       const sessions = [{ threadId: "parent-1", threadSource: "user", threadName: "Parent" }];
-      const buttons = ["timeline", "tools", "subagents", "events"].map((tab) => ({
+      const buttons = ["timeline", "subagents", "events"].map((tab) => ({
         dataset: { tab },
         hidden: false,
         classList: { toggle() {} },
@@ -115,7 +143,7 @@ test("subagent detail chrome uses selected metadata when the gallery is filtered
     `
       const session = getSelectedSession();
       syncDetailControls();
-      ({ sessionThreadId: session?.threadId, parentHidden: parentButton.hidden, subagentsHidden: buttons[2].hidden, activeTab });
+      ({ sessionThreadId: session?.threadId, parentHidden: parentButton.hidden, subagentsHidden: buttons[1].hidden, activeTab });
     `,
   ].join("\n");
 
@@ -257,8 +285,8 @@ test("stale detail renders cannot overwrite a newer tab selection", async () => 
             pending[url.slice(url.lastIndexOf("/") + 1)] = resolve;
           });
         }
-        if (url.endsWith("/tools")) {
-          return Promise.resolve([{ callId: "call-1", name: "exec_command", arguments: "{}" }]);
+        if (url.endsWith("/subagents")) {
+          return Promise.resolve([]);
         }
         throw new Error(url);
       }
@@ -276,25 +304,26 @@ test("stale detail renders cannot overwrite a newer tab selection", async () => 
     js.includes("function isCurrentRender(") ? extractFunction(js, "isCurrentRender") : "",
     extractFunction(js, "renderSelected"),
     extractFunction(js, "renderTimeline"),
-    extractFunction(js, "renderTools"),
+    extractFunction(js, "renderSubagentCard"),
+    extractFunction(js, "renderSubagents"),
     `
       (async () => {
         const timelineRender = renderSelected();
-        activeTab = "tools";
+        activeTab = "subagents";
         await renderSelected();
-        const toolsHtml = panelEl.innerHTML;
+        const subagentsHtml = panelEl.innerHTML;
         pending.timeline({ session: { threadName: "Thread" }, messages: [], toolCalls: [], events: [] });
         pending.usage({});
         await timelineRender;
-        return { toolsHtml, finalHtml: panelEl.innerHTML };
+        return { subagentsHtml, finalHtml: panelEl.innerHTML };
       })();
     `,
   ].join("\n");
 
   const result = await vm.runInNewContext(code);
 
-  assert.match(result.toolsHtml, /class="tool-grid"/);
-  assert.match(result.finalHtml, /class="tool-grid"/);
+  assert.match(result.subagentsHtml, /class="subagent-list"/);
+  assert.match(result.finalHtml, /class="subagent-list"/);
   assert.doesNotMatch(result.finalHtml, /trace-hero/);
 });
 

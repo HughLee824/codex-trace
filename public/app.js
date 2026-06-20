@@ -165,8 +165,8 @@ function isSubagentSession(session) {
 
 function getAvailableDetailTabs(session = getSelectedSession()) {
   return isSubagentSession(session)
-    ? ["timeline", "tools", "events"]
-    : ["timeline", "tools", "subagents", "events"];
+    ? ["timeline", "events"]
+    : ["timeline", "subagents", "events"];
 }
 
 function setActiveTab(tab) {
@@ -226,7 +226,6 @@ async function renderSelected() {
   }
   try {
     if (tab === "timeline") return await renderTimeline(threadId, sequence, tab);
-    if (tab === "tools") return await renderTools(threadId, sequence, tab);
     if (tab === "subagents") return await renderSubagents(threadId, sequence, tab);
     if (tab === "events") return await renderEvents(threadId, sequence, tab);
   } catch (error) {
@@ -367,31 +366,6 @@ function updateStickyUsageDensity() {
   if (usage.classList.contains("agent-usage--compact") !== compact) {
     usage.classList.toggle("agent-usage--compact", compact);
   }
-}
-
-async function renderTools(threadId = selected, sequence = renderSequence, tab = "tools") {
-  const tools = await fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/tools`);
-  if (!isCurrentRender(sequence, threadId, tab)) return;
-  panelEl.innerHTML = `
-    <div class="tool-grid">
-      ${tools.map((tool) => `
-        <details class="tool ${tool.exitCode ? "bad" : ""}">
-          <summary>
-            <span class="badge">${escapeHtml(tool.name)}</span>
-            <span>${escapeHtml(shortId(tool.callId))}</span>
-            ${tool.exitCode !== null && tool.exitCode !== undefined ? `<span class="exit-code">exit ${tool.exitCode}</span>` : ""}
-          </summary>
-          <div class="meta">${escapeHtml(tool.cwd || "")}</div>
-          <h3>Arguments</h3>
-      <pre>${escapeHtml(tool.arguments || "")}</pre>
-          <h3>Output</h3>
-      <pre>${escapeHtml(tool.output || tool.stderr || tool.stdout || "")}</pre>
-          ${tool.durationMs ? `<div class="meta">Duration ${formatDuration(tool.durationMs)}</div>` : ""}
-          ${tool.changedFiles ? `<div class="meta">Changed: ${escapeHtml(tool.changedFiles.join(", "))}</div>` : ""}
-        </details>
-      `).join("") || `<div class="empty-state">No tools captured.</div>`}
-    </div>
-  `;
 }
 
 function renderAgentUsage(usage = {}, compact = false) {

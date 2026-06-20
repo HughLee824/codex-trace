@@ -386,6 +386,12 @@ h1 {
   z-index: 9;
 }
 
+.detail-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .secondary {
   background: var(--canvas);
   border-color: var(--soft-line);
@@ -451,6 +457,34 @@ h1 {
 
 .trace-path {
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-hero-meta {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0 0;
+  max-width: 680px;
+}
+
+.trace-hero-meta div {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 116px minmax(0, 1fr);
+}
+
+.trace-hero-meta dt {
+  color: #a8a8a8;
+  font-size: 12px;
+  margin: 0;
+}
+
+.trace-hero-meta dd {
+  color: var(--canvas);
+  font-size: 13px;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

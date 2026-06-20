@@ -1,5 +1,6 @@
 let sessions = [];
 let selected = null;
+let selectedSession = null;
 let selectedProject = "all";
 let activeTab = "timeline";
 let renderSequence = 0;
@@ -16,6 +17,7 @@ const searchEl = document.getElementById("search");
 const sessionsPageEl = document.getElementById("sessions-page");
 const detailPageEl = document.getElementById("detail-page");
 const backButton = document.getElementById("back-to-sessions");
+const parentButton = document.getElementById("back-to-parent");
 
 document.querySelectorAll("[data-tab]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -35,6 +37,11 @@ backButton.addEventListener("click", () => {
   selected = null;
   location.hash = "#/";
   renderRoute();
+});
+parentButton.addEventListener("click", () => {
+  const session = getSelectedSession();
+  if (!session?.parentThreadId) return;
+  selectSession(session.parentThreadId, "subagents");
 });
 window.addEventListener("hashchange", renderRoute);
 window.addEventListener("scroll", scheduleStickyUsageUpdate, { passive: true });
@@ -137,9 +144,47 @@ function ensureSelectedProjectExists() {
   }
 }
 
+function getSelectedSession() {
+  if (selectedSession?.threadId === selected) return selectedSession;
+  return sessions.find((session) => session.threadId === selected);
+}
+
+async function loadSelectedSession(threadId) {
+  selectedSession = sessions.find((session) => session.threadId === threadId) || null;
+  try {
+    const session = await fetchJson(`/api/sessions/${encodeURIComponent(threadId)}`);
+    if (selected === threadId) selectedSession = session;
+  } catch {
+    if (selected === threadId && selectedSession?.threadId !== threadId) selectedSession = null;
+  }
+}
+
+function isSubagentSession(session) {
+  return session?.threadSource === "subagent";
+}
+
+function getAvailableDetailTabs(session = getSelectedSession()) {
+  return isSubagentSession(session)
+    ? ["timeline", "tools", "events"]
+    : ["timeline", "tools", "subagents", "events"];
+}
+
 function setActiveTab(tab) {
-  activeTab = tab;
-  document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("active", item.dataset.tab === tab));
+  const session = getSelectedSession();
+  const availableTabs = getAvailableDetailTabs(session);
+  activeTab = availableTabs.includes(tab) ? tab : "timeline";
+  document.querySelectorAll("[data-tab]").forEach((item) => {
+    item.hidden = isSubagentSession(session) && item.dataset.tab === "subagents";
+    item.classList.toggle("active", item.dataset.tab === activeTab);
+  });
+}
+
+function syncDetailControls() {
+  const session = getSelectedSession();
+  const hasParent = isSubagentSession(session) && Boolean(session.parentThreadId);
+  parentButton.hidden = !hasParent;
+  parentButton.title = hasParent ? `Open parent session ${session.parentThreadId}` : "";
+  setActiveTab(activeTab);
 }
 
 async function selectSession(threadId, tab = "timeline") {
@@ -153,6 +198,7 @@ async function renderRoute() {
   const match = location.hash.match(/^#\/sessions\/(.+)$/);
   if (!match) {
     selected = null;
+    selectedSession = null;
     sessionsPageEl.hidden = false;
     detailPageEl.hidden = true;
     document.body.classList.remove("detail-mode");
@@ -161,11 +207,12 @@ async function renderRoute() {
   }
 
   selected = decodeURIComponent(match[1]);
+  await loadSelectedSession(selected);
   sessionsPageEl.hidden = true;
   detailPageEl.hidden = false;
   document.body.classList.add("detail-mode");
   renderSessions();
-  setActiveTab(activeTab);
+  syncDetailControls();
   await renderSelected();
 }
 
@@ -892,8 +939,32 @@ function formatSessionActiveTime(timestamp) {
   return formatted ? `Active ${formatted}` : "";
 }
 
+function getSessionTitle(session, fallbackThreadId = selected) {
+  if (session?.threadSource === "subagent") {
+    return session.agentNickname || session.threadName || shortId(fallbackThreadId);
+  }
+  return session?.threadName || shortId(fallbackThreadId);
+}
+
+function renderSessionHeroMeta(session, fallbackThreadId = selected) {
+  if (session?.threadSource !== "subagent") return "";
+  const title = getSessionTitle(session, fallbackThreadId);
+  const rows = [
+    ["Subagent name", title],
+    session.threadName && session.threadName !== title ? ["Thread", session.threadName] : null,
+    session.agentRole ? ["Role", session.agentRole] : null,
+    session.parentThreadId ? ["Parent session", session.parentThreadId] : null,
+  ].filter(Boolean);
+  if (!rows.length) return "";
+  return `
+        <dl class="trace-hero-meta">
+          ${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd title="${escapeHtml(value)}">${escapeHtml(value)}</dd></div>`).join("")}
+        </dl>
+  `;
+}
+
 function renderSessionHero(session, stats = [], fallbackThreadId = selected) {
-  const title = session?.threadName || shortId(fallbackThreadId);
+  const title = getSessionTitle(session, fallbackThreadId);
   const path = session?.filePath || "";
   return `
     <section class="trace-hero">
@@ -901,6 +972,7 @@ function renderSessionHero(session, stats = [], fallbackThreadId = selected) {
         <p class="eyebrow">${escapeHtml(renderSessionKind(session))}</p>
         <h2>${escapeHtml(title)}</h2>
         <p class="trace-path" title="${escapeHtml(path)}">${escapeHtml(path)}</p>
+        ${renderSessionHeroMeta(session, fallbackThreadId)}
       </div>
       <div class="trace-stats">
         ${stats.map(([label, value]) => `

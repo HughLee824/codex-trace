@@ -28,6 +28,174 @@ test("opening a child session resets detail view to timeline output", async () =
   assert.match(js, /setActiveTab\(tab\)/);
 });
 
+test("subagent detail chrome links back to the parent and hides the subagents tab", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const js = await readFile("public/app.js", "utf8");
+
+  assert.match(html, /id="back-to-parent"[\s\S]*hidden/);
+  assert.match(js, /parentButton\.addEventListener\("click"/);
+  assert.match(js, /selectSession\(session\.parentThreadId, "subagents"\)/);
+
+  const code = [
+    `
+      let selected = "child-1";
+      let selectedSession = null;
+      let activeTab = "subagents";
+      const sessions = [{
+        threadId: "child-1",
+        threadSource: "subagent",
+        parentThreadId: "parent-1",
+        agentNickname: "Normalize store intake",
+      }];
+      const toggles = [];
+      const buttons = ["timeline", "tools", "subagents", "events"].map((tab) => ({
+        dataset: { tab },
+        hidden: false,
+        classList: { toggle: (name, enabled) => toggles.push([tab, name, enabled]) },
+      }));
+      const parentButton = { hidden: true, title: "" };
+      const document = {
+        querySelectorAll(selector) {
+          if (selector !== "[data-tab]") throw new Error(selector);
+          return buttons;
+        },
+      };
+    `,
+    extractFunction(js, "getSelectedSession"),
+    extractFunction(js, "isSubagentSession"),
+    extractFunction(js, "getAvailableDetailTabs"),
+    extractFunction(js, "setActiveTab"),
+    extractFunction(js, "syncDetailControls"),
+    `
+      syncDetailControls();
+      ({ activeTab, parentHidden: parentButton.hidden, parentTitle: parentButton.title, subagentsHidden: buttons[2].hidden, toggles });
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.equal(result.activeTab, "timeline");
+  assert.equal(result.parentHidden, false);
+  assert.match(result.parentTitle, /parent-1/);
+  assert.equal(result.subagentsHidden, true);
+  assert.ok(result.toggles.some(([tab, name, enabled]) => tab === "timeline" && name === "active" && enabled === true));
+});
+
+test("subagent detail chrome uses selected metadata when the gallery is filtered", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "child-1";
+      let selectedSession = {
+        threadId: "child-1",
+        threadSource: "subagent",
+        parentThreadId: "parent-1",
+        agentNickname: "Normalize store intake",
+      };
+      let activeTab = "subagents";
+      const sessions = [{ threadId: "parent-1", threadSource: "user", threadName: "Parent" }];
+      const buttons = ["timeline", "tools", "subagents", "events"].map((tab) => ({
+        dataset: { tab },
+        hidden: false,
+        classList: { toggle() {} },
+      }));
+      const parentButton = { hidden: true, title: "" };
+      const document = {
+        querySelectorAll(selector) {
+          if (selector !== "[data-tab]") throw new Error(selector);
+          return buttons;
+        },
+      };
+    `,
+    extractFunction(js, "getSelectedSession"),
+    extractFunction(js, "isSubagentSession"),
+    extractFunction(js, "getAvailableDetailTabs"),
+    extractFunction(js, "setActiveTab"),
+    extractFunction(js, "syncDetailControls"),
+    `
+      const session = getSelectedSession();
+      syncDetailControls();
+      ({ sessionThreadId: session?.threadId, parentHidden: parentButton.hidden, subagentsHidden: buttons[2].hidden, activeTab });
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.equal(result.sessionThreadId, "child-1");
+  assert.equal(result.parentHidden, false);
+  assert.equal(result.subagentsHidden, true);
+  assert.equal(result.activeTab, "timeline");
+});
+
+test("selected session metadata loads outside the filtered gallery", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "child-1";
+      let selectedSession = null;
+      const sessions = [{ threadId: "parent-1", threadSource: "user", threadName: "Parent" }];
+      const requests = [];
+      function fetchJson(url) {
+        requests.push(url);
+        return Promise.resolve({
+          threadId: "child-1",
+          threadSource: "subagent",
+          parentThreadId: "parent-1",
+          agentNickname: "Normalize store intake",
+        });
+      }
+    `,
+    extractFunction(js, "getSelectedSession"),
+    extractFunction(js, "loadSelectedSession"),
+    `
+      (async () => {
+        await loadSelectedSession("child-1");
+        return { requests, session: getSelectedSession() };
+      })();
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.equal(result.requests.length, 1);
+  assert.equal(result.requests[0], "/api/sessions/child-1");
+  assert.equal(result.session.threadId, "child-1");
+  assert.equal(result.session.parentThreadId, "parent-1");
+});
+
+test("subagent hero shows a stable subagent name and parent session reference", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const css = await readFile("public/styles.css", "utf8");
+  const code = [
+    `let selected = "child-1";`,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "renderSessionKind"),
+    extractFunction(js, "getSessionTitle"),
+    extractFunction(js, "renderSessionHeroMeta"),
+    extractFunction(js, "renderSessionHero"),
+    `
+      renderSessionHero({
+        threadSource: "subagent",
+        threadName: "Normalize store intake",
+        agentNickname: "intake-worker",
+        agentRole: "worker",
+        parentThreadId: "parent-1",
+        filePath: "/tmp/child.jsonl",
+      }, [["messages", 11]], "child-1");
+    `,
+  ].join("\n");
+
+  const hero = await vm.runInNewContext(code);
+
+  assert.match(hero, /<h2>intake-worker<\/h2>/);
+  assert.match(hero, /Subagent name/);
+  assert.match(hero, /Normalize store intake/);
+  assert.match(hero, /Parent session/);
+  assert.match(hero, /parent-1/);
+  assert.match(css, /\.trace-hero-meta/);
+});
+
 test("live events refresh the currently selected session detail view", async () => {
   const js = await readFile("public/app.js", "utf8");
   const code = [

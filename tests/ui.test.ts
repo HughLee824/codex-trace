@@ -70,6 +70,66 @@ test("live events refresh the currently selected session detail view", async () 
   ]);
 });
 
+test("stale detail renders cannot overwrite a newer tab selection", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = "thread-1";
+      let activeTab = "timeline";
+      let renderSequence = 0;
+      const panelEl = {
+        innerHTML: "",
+        querySelector: () => null,
+        querySelectorAll: () => [],
+      };
+      const pending = {};
+      function fetchJson(url) {
+        if (url.endsWith("/timeline") || url.endsWith("/usage")) {
+          return new Promise((resolve) => {
+            pending[url.slice(url.lastIndexOf("/") + 1)] = resolve;
+          });
+        }
+        if (url.endsWith("/tools")) {
+          return Promise.resolve([{ callId: "call-1", name: "exec_command", arguments: "{}" }]);
+        }
+        throw new Error(url);
+      }
+      function renderSessionHero() { return '<section class="trace-hero">Timeline</section>'; }
+      function renderAgentUsage() { return ""; }
+      function shouldRenderStickyUsageCompact() { return false; }
+      function updateStickyUsageDensity() {}
+      function attachImageFallbacks() {}
+      function renderMarkdown(value) { return value; }
+      function formatMessageTimestamp() { return ""; }
+      function formatDuration() { return ""; }
+    `,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    js.includes("function isCurrentRender(") ? extractFunction(js, "isCurrentRender") : "",
+    extractFunction(js, "renderSelected"),
+    extractFunction(js, "renderTimeline"),
+    extractFunction(js, "renderTools"),
+    `
+      (async () => {
+        const timelineRender = renderSelected();
+        activeTab = "tools";
+        await renderSelected();
+        const toolsHtml = panelEl.innerHTML;
+        pending.timeline({ session: { threadName: "Thread" }, messages: [], toolCalls: [], events: [] });
+        pending.usage({});
+        await timelineRender;
+        return { toolsHtml, finalHtml: panelEl.innerHTML };
+      })();
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.match(result.toolsHtml, /class="tool-grid"/);
+  assert.match(result.finalHtml, /class="tool-grid"/);
+  assert.doesNotMatch(result.finalHtml, /trace-hero/);
+});
+
 test("session cards show recent activity time", async () => {
   const js = await readFile("public/app.js", "utf8");
   const code = [
@@ -111,6 +171,49 @@ test("session cards show recent activity time", async () => {
   assert.match(html, /Recent work/);
   assert.match(html, /Active /);
   assert.match(html, /42 lines/);
+});
+
+test("session gallery omits redundant user source badge", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `
+      let selected = null;
+      let selectedProject = "all";
+      const sessions = [{
+        threadId: "thread-1",
+        threadName: "Recent work",
+        threadSource: "user",
+        cwd: "/work/codex-trace",
+        filePath: "/tmp/thread-1.jsonl",
+        updatedAt: "2026-06-14T00:00:08.000Z",
+        lineCount: 42,
+      }];
+      const sessionsHeadingEl = { textContent: "" };
+      const sessionsCountEl = { textContent: "" };
+      const sessionsEl = { innerHTML: "", querySelectorAll: () => [] };
+      function selectSession() {}
+    `,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "formatMessageTimestamp"),
+    extractFunction(js, "formatSessionActiveTime"),
+    extractFunction(js, "deriveProject"),
+    extractFunction(js, "getGallerySessions"),
+    extractFunction(js, "filterSessionsByProject"),
+    extractFunction(js, "getProjectSummary"),
+    extractFunction(js, "renderSessions"),
+    `
+      renderSessions();
+      sessionsEl.innerHTML;
+    `,
+  ].join("\n");
+
+  const html = await vm.runInNewContext(code);
+  const renderSubagentCard = extractFunction(js, "renderSubagentCard");
+
+  assert.doesNotMatch(html, /class="session-kind"/);
+  assert.doesNotMatch(html, />user</);
+  assert.match(renderSubagentCard, /class="session-kind">subagent/);
 });
 
 test("timeline messages expose timestamps in a tighter detail layout", async () => {
@@ -360,7 +463,7 @@ test("timeline renders context usage as a donut card with compact token cards", 
   assert.doesNotMatch(js, /activeTab !== "live"/);
   assert.doesNotMatch(css, /\.live-section/);
   assert.match(js, /Promise\.all\(\[/);
-  assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/usage/);
+  assert.match(js, /\/api\/sessions\/\$\{encodeURIComponent\(threadId\)\}\/usage/);
   assert.match(js, /renderAgentUsage\(usage, compactUsage\)/);
   assert.match(renderTimeline, /const compactUsage = shouldRenderStickyUsageCompact\(\)/);
   assert.match(renderTimeline, /updateStickyUsageDensity\(\)/);
@@ -482,7 +585,7 @@ test("events view owns raw event stream and raw JSON expansion", async () => {
   const js = await readFile("public/app.js", "utf8");
   const renderEvents = extractFunction(js, "renderEvents");
 
-  assert.match(renderEvents, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/timeline/);
+  assert.match(renderEvents, /\/api\/sessions\/\$\{encodeURIComponent\(threadId\)\}\/timeline/);
   assert.match(renderEvents, /Raw events/);
   assert.match(renderEvents, /eventRecords\.slice\(-120\)/);
   assert.match(renderEvents, /data-raw/);
@@ -495,7 +598,7 @@ test("subagents view renders compact cards in a multi-column grid", async () => 
   const css = await readFile("public/styles.css", "utf8");
   const renderSubagents = extractFunction(js, "renderSubagents");
 
-  assert.match(renderSubagents, /\/api\/sessions\/\$\{encodeURIComponent\(selected\)\}\/subagents/);
+  assert.match(renderSubagents, /\/api\/sessions\/\$\{encodeURIComponent\(threadId\)\}\/subagents/);
   assert.doesNotMatch(renderSubagents, /Promise\.all\(\[/);
   assert.doesNotMatch(renderSubagents, /\/usage/);
   assert.match(renderSubagents, /renderSubagentCard\(edge\)/);
@@ -561,7 +664,8 @@ function getRenderMarkdown(source: string): (value: string) => string {
 }
 
 function extractFunction(source: string, name: string): string {
-  const start = source.indexOf(`function ${name}(`);
+  const asyncStart = source.indexOf(`async function ${name}(`);
+  const start = asyncStart === -1 ? source.indexOf(`function ${name}(`) : asyncStart;
   assert.notEqual(start, -1, `${name} should exist`);
   const bodyStart = source.indexOf("{", start);
   let depth = 0;

@@ -2,6 +2,7 @@ let sessions = [];
 let selected = null;
 let selectedProject = "all";
 let activeTab = "timeline";
+let renderSequence = 0;
 let usageDensityFrame = 0;
 const stickyUsageTop = 108;
 
@@ -19,7 +20,7 @@ const backButton = document.getElementById("back-to-sessions");
 document.querySelectorAll("[data-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     setActiveTab(button.dataset.tab);
-    renderSelected();
+    void renderSelected();
   });
 });
 
@@ -57,7 +58,6 @@ function renderSessions() {
     const project = deriveProject(session);
     return `
     <button class="session ${session.threadId === selected ? "active" : ""}" data-id="${escapeHtml(session.threadId)}">
-      <span class="session-kind">${escapeHtml(session.threadSource || "unknown")}</span>
       <strong>${escapeHtml(session.threadName || shortId(session.threadId))}</strong>
       <span class="session-path">${escapeHtml(session.cwd || session.filePath || "")}</span>
       <span class="session-foot">
@@ -170,21 +170,35 @@ async function renderRoute() {
 }
 
 async function renderSelected() {
-  if (!selected) {
+  const sequence = ++renderSequence;
+  const threadId = selected;
+  const tab = activeTab;
+  if (!threadId) {
     panelEl.innerHTML = `<div class="card">No session selected.</div>`;
     return;
   }
-  if (activeTab === "timeline") return renderTimeline();
-  if (activeTab === "tools") return renderTools();
-  if (activeTab === "subagents") return renderSubagents();
-  if (activeTab === "events") return renderEvents();
+  try {
+    if (tab === "timeline") return await renderTimeline(threadId, sequence, tab);
+    if (tab === "tools") return await renderTools(threadId, sequence, tab);
+    if (tab === "subagents") return await renderSubagents(threadId, sequence, tab);
+    if (tab === "events") return await renderEvents(threadId, sequence, tab);
+  } catch (error) {
+    if (!isCurrentRender(sequence, threadId, tab)) return;
+    statusEl.textContent = `Failed to load ${tab}`;
+    panelEl.innerHTML = `<div class="empty-state">Failed to load ${escapeHtml(tab)}.</div>`;
+  }
 }
 
-async function renderTimeline() {
+function isCurrentRender(sequence, threadId, tab) {
+  return sequence === renderSequence && selected === threadId && activeTab === tab;
+}
+
+async function renderTimeline(threadId = selected, sequence = renderSequence, tab = "timeline") {
   const [data, usage] = await Promise.all([
-    fetchJson(`/api/sessions/${encodeURIComponent(selected)}/timeline`),
-    fetchJson(`/api/sessions/${encodeURIComponent(selected)}/usage`),
+    fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/timeline`),
+    fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/usage`),
   ]);
+  if (!isCurrentRender(sequence, threadId, tab)) return;
   const messageRecords = data.messages || [];
   const toolRecords = data.toolCalls || data.tools || [];
   const messages = messageRecords.map((message) => {
@@ -208,7 +222,7 @@ async function renderTimeline() {
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
       ["events", data.events?.length || 0],
-    ])}
+    ], threadId)}
     ${renderAgentUsage(usage, compactUsage)}
     <section class="timeline-section">
       <div class="section-title"><h3>Messages</h3><span>${messageRecords.length}</span></div>
@@ -255,8 +269,9 @@ function updateStickyUsageDensity() {
   }
 }
 
-async function renderTools() {
-  const tools = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/tools`);
+async function renderTools(threadId = selected, sequence = renderSequence, tab = "tools") {
+  const tools = await fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/tools`);
+  if (!isCurrentRender(sequence, threadId, tab)) return;
   panelEl.innerHTML = `
     <div class="tool-grid">
       ${tools.map((tool) => `
@@ -357,8 +372,9 @@ function renderContextUsageCard(agent = {}) {
   `;
 }
 
-async function renderSubagents() {
-  const edges = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/subagents`);
+async function renderSubagents(threadId = selected, sequence = renderSequence, tab = "subagents") {
+  const edges = await fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/subagents`);
+  if (!isCurrentRender(sequence, threadId, tab)) return;
   panelEl.innerHTML = `
     <div class="subagent-list">
       ${edges.map((edge) => renderSubagentCard(edge)).join("") || `<div class="empty-state">No subagents captured.</div>`}
@@ -394,8 +410,9 @@ function renderSubagentCard(edge) {
   `;
 }
 
-async function renderEvents() {
-  const data = await fetchJson(`/api/sessions/${encodeURIComponent(selected)}/timeline`);
+async function renderEvents(threadId = selected, sequence = renderSequence, tab = "events") {
+  const data = await fetchJson(`/api/sessions/${encodeURIComponent(threadId)}/timeline`);
+  if (!isCurrentRender(sequence, threadId, tab)) return;
   const eventRecords = data.events || [];
   const events = eventRecords.slice(-120).reverse().map((event) => `
     <details class="event-row">
@@ -875,8 +892,8 @@ function formatSessionActiveTime(timestamp) {
   return formatted ? `Active ${formatted}` : "";
 }
 
-function renderSessionHero(session, stats = []) {
-  const title = session?.threadName || shortId(selected);
+function renderSessionHero(session, stats = [], fallbackThreadId = selected) {
+  const title = session?.threadName || shortId(fallbackThreadId);
   const path = session?.filePath || "";
   return `
     <section class="trace-hero">

@@ -256,7 +256,6 @@ async function renderTimeline(threadId = selected, sequence = renderSequence, ta
     ${renderSessionHero(data.session, [
       ["messages", messageRecords.length],
       ["tools", toolRecords.length],
-      ["events", data.events?.length || 0],
     ], threadId)}
     ${renderAgentUsage(usage, compactUsage)}
     <section class="timeline-section">
@@ -1061,6 +1060,18 @@ function formatDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatSessionDuration(session) {
+  const started = Date.parse(session?.startedAt || "");
+  const updated = Date.parse(session?.updatedAt || "");
+  if (!Number.isFinite(started) || !Number.isFinite(updated) || updated < started) return "";
+  const totalMinutes = Math.floor((updated - started) / 60000);
+  if (totalMinutes < 1) return "<1m";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 function formatNumber(value) {
   return Number(value || 0).toLocaleString();
 }
@@ -1122,6 +1133,8 @@ function renderSessionHeroMeta(session, fallbackThreadId = selected) {
 function renderSessionHero(session, stats = [], fallbackThreadId = selected) {
   const title = getSessionTitle(session, fallbackThreadId);
   const path = session?.filePath || "";
+  const duration = formatSessionDuration(session);
+  const heroStats = duration ? [...stats, ["duration", duration]] : stats;
   return `
     <section class="trace-hero">
       <div>
@@ -1131,7 +1144,7 @@ function renderSessionHero(session, stats = [], fallbackThreadId = selected) {
         ${renderSessionHeroMeta(session, fallbackThreadId)}
       </div>
       <div class="trace-stats">
-        ${stats.map(([label, value]) => `
+        ${heroStats.map(([label, value]) => `
           <span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>
         `).join("")}
       </div>

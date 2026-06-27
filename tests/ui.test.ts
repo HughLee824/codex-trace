@@ -198,6 +198,7 @@ test("subagent hero shows a stable subagent name and parent session reference", 
     `let selected = "child-1";`,
     extractFunction(js, "escapeHtml"),
     extractFunction(js, "shortId"),
+    extractFunction(js, "formatSessionDuration"),
     extractFunction(js, "renderSessionKind"),
     extractFunction(js, "getSessionTitle"),
     extractFunction(js, "renderSessionHeroMeta"),
@@ -222,6 +223,63 @@ test("subagent hero shows a stable subagent name and parent session reference", 
   assert.match(hero, /Parent session/);
   assert.match(hero, /parent-1/);
   assert.match(css, /\.trace-hero-meta/);
+});
+
+test("session hero shows elapsed duration for main sessions and subagents", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const code = [
+    `let selected = "thread-1";`,
+    extractFunction(js, "escapeHtml"),
+    extractFunction(js, "shortId"),
+    extractFunction(js, "formatDuration"),
+    extractFunction(js, "formatSessionDuration"),
+    extractFunction(js, "renderSessionKind"),
+    extractFunction(js, "getSessionTitle"),
+    extractFunction(js, "renderSessionHeroMeta"),
+    extractFunction(js, "renderSessionHero"),
+    `
+      ({
+        main: renderSessionHero({
+          threadSource: "user",
+          threadName: "Main",
+          startedAt: "2026-06-14T00:00:00.000Z",
+          updatedAt: "2026-06-14T01:02:03.000Z",
+          filePath: "/tmp/main.jsonl",
+        }, [["messages", 2]], "thread-1"),
+        subagent: renderSessionHero({
+          threadSource: "subagent",
+          agentNickname: "worker",
+          parentThreadId: "thread-1",
+          startedAt: "2026-06-14T00:00:00.000Z",
+          updatedAt: "2026-06-14T00:02:05.000Z",
+          filePath: "/tmp/child.jsonl",
+        }, [["messages", 1]], "child-1"),
+        short: renderSessionHero({
+          threadSource: "user",
+          threadName: "Short",
+          startedAt: "2026-06-14T00:00:00.000Z",
+          updatedAt: "2026-06-14T00:00:59.000Z",
+          filePath: "/tmp/short.jsonl",
+        }, [["messages", 1]], "short-1"),
+      });
+    `,
+  ].join("\n");
+
+  const result = await vm.runInNewContext(code);
+
+  assert.match(result.main, /<strong>1h 2m<\/strong>duration/);
+  assert.match(result.subagent, /<strong>2m<\/strong>duration/);
+  assert.match(result.short, /<strong>&lt;1m<\/strong>duration/);
+  assert.doesNotMatch(result.subagent, /2m 5s/);
+});
+
+test("timeline hero omits the raw events metric", async () => {
+  const js = await readFile("public/app.js", "utf8");
+  const renderTimeline = extractFunction(js, "renderTimeline");
+
+  assert.doesNotMatch(renderTimeline, /\["events"/);
+  assert.match(renderTimeline, /const eventRecords = data\.events \|\| \[\]/);
+  assert.match(renderTimeline, /buildTimelineItems\(messageRecords, toolRecords, eventRecords, turnRecords\)/);
 });
 
 test("live events refresh the currently selected session detail view", async () => {

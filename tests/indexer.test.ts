@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -82,6 +82,35 @@ test("sqlite writes wait for transient index locks", async () => {
 
   await store.clear();
   await lock;
+});
+
+test("sqlite child processes time out instead of blocking the server indefinitely", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-sqlite-timeout-"));
+  const binDir = join(dir, "bin");
+  await mkdir(binDir);
+  const sqlitePath = join(binDir, "sqlite3");
+  await writeFile(sqlitePath, "#!/bin/sh\nsleep 5\n");
+  await chmod(sqlitePath, 0o755);
+
+  const previousPath = process.env.PATH;
+  const previousTimeout = process.env.CODEX_TRACE_SQLITE_PROCESS_TIMEOUT_MS;
+  process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+  process.env.CODEX_TRACE_SQLITE_PROCESS_TIMEOUT_MS = "100";
+  try {
+    const store = new TraceStore(join(dir, "index.sqlite"));
+    const startedAt = Date.now();
+
+    await assert.rejects(
+      store.listSessions(),
+      /sqlite3 timed out after 100ms/,
+    );
+    assert.ok(Date.now() - startedAt < 1500);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousTimeout === undefined) delete process.env.CODEX_TRACE_SQLITE_PROCESS_TIMEOUT_MS;
+    else process.env.CODEX_TRACE_SQLITE_PROCESS_TIMEOUT_MS = previousTimeout;
+  }
 });
 
 test("refreshes thread names from session index without rebuilding sessions", async () => {

@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import type { AgentUsageRecord, SessionModel, SessionRecord, SubagentEdge, TokenUsageRecord, ToolCallRecord, UsageStats } from "./types.ts";
 
 const SQLITE_BUSY_TIMEOUT_MS = 10_000;
+const DEFAULT_SQLITE_PROCESS_TIMEOUT_MS = 30_000;
 
 function q(value: unknown): string {
   if (value === undefined || value === null) return "NULL";
@@ -362,15 +363,24 @@ export class TraceStore {
   }
 
   private exec(sql: string): void {
-    const result = spawnSync("sqlite3", this.sqliteArgs(), { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
+    const result = spawnSync("sqlite3", this.sqliteArgs(), this.sqliteSpawnOptions(sql));
     if (result.status !== 0) throw this.sqliteError(result);
   }
 
   private query(sql: string): any[] {
-    const result = spawnSync("sqlite3", this.sqliteArgs("-json"), { input: sql, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 });
+    const result = spawnSync("sqlite3", this.sqliteArgs("-json"), this.sqliteSpawnOptions(sql));
     if (result.status !== 0) throw this.sqliteError(result);
-    const text = result.stdout.trim();
+    const text = result.stdout.toString().trim();
     return text ? JSON.parse(text) : [];
+  }
+
+  private sqliteSpawnOptions(sql: string): Parameters<typeof spawnSync>[2] {
+    return {
+      input: sql,
+      encoding: "utf8",
+      maxBuffer: 100 * 1024 * 1024,
+      timeout: sqliteProcessTimeoutMs(),
+    };
   }
 
   private sqliteArgs(...extra: string[]): string[] {
@@ -384,6 +394,10 @@ export class TraceStore {
   }
 
   private sqliteError(result: ReturnType<typeof spawnSync>): Error {
+    const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+    if (timedOut) {
+      return new Error(`sqlite3 timed out after ${sqliteProcessTimeoutMs()}ms for ${this.dbPath}`);
+    }
     const message = result.stderr?.toString() || result.stdout?.toString() || `sqlite3 exited ${result.status}`;
     if (/database is locked/.test(message)) {
       return new Error([
@@ -395,6 +409,11 @@ export class TraceStore {
     }
     return new Error(message);
   }
+}
+
+function sqliteProcessTimeoutMs(): number {
+  const configured = Number(process.env.CODEX_TRACE_SQLITE_PROCESS_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SQLITE_PROCESS_TIMEOUT_MS;
 }
 
 function unique<T>(values: T[]): T[] {

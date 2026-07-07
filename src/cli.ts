@@ -40,7 +40,6 @@ async function main(): Promise<void> {
   }
 
   const store = new TraceStore(config.indexPath);
-  await store.initialize();
 
   if (command === "reindex") {
     const result = await indexAll({ sessionsDir: config.sessionsDir, sessionIndexPath: config.sessionIndexPath, store });

@@ -113,6 +113,39 @@ test("sqlite child processes time out instead of blocking the server indefinitel
   }
 });
 
+test("full reindex resets the derived sqlite index instead of clearing rows", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-trace-reset-index-"));
+  const sessionsDir = join(dir, "sessions");
+  const binDir = join(dir, "bin");
+  await mkdir(sessionsDir, { recursive: true });
+  await mkdir(binDir);
+
+  const realSqlite = spawnSync("which", ["sqlite3"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(realSqlite, "sqlite3 must be available");
+  const sqlitePath = join(binDir, "sqlite3");
+  await writeFile(sqlitePath, [
+    "#!/bin/sh",
+    "input=$(cat)",
+    "case \"$input\" in",
+    "  *\"DELETE FROM subagent_edges;\"*) echo \"unexpected full-index delete\" >&2; exit 42 ;;",
+    "esac",
+    `printf "%s" "$input" | ${realSqlite} "$@"`,
+    "",
+  ].join("\n"));
+  await chmod(sqlitePath, 0o755);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+  try {
+    const store = new TraceStore(join(dir, "index.sqlite"));
+    await indexAll({ sessionsDir, store });
+    assert.deepEqual(await store.listSessions(), []);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+});
+
 test("refreshes thread names from session index without rebuilding sessions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-trace-thread-name-"));
   const sessionsDir = join(dir, "sessions");

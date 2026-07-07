@@ -15,8 +15,7 @@ export interface IndexAllOptions {
 export async function indexAll(options: IndexAllOptions): Promise<{ indexed: number; skipped: number }> {
   const releaseLock = await acquireRebuildLock(options.store.dbPath);
   try {
-    await options.store.initialize();
-    await options.store.clear();
+    await options.store.reset();
     const threadNames = options.sessionIndexPath ? await loadThreadNames(options.sessionIndexPath) : new Map<string, string>();
     const files = await findJsonlFiles(options.sessionsDir);
     let indexed = 0;

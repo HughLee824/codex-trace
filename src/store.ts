@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -142,6 +142,16 @@ export class TraceStore {
       CREATE INDEX IF NOT EXISTS idx_tools_thread ON tool_calls(thread_id);
       CREATE INDEX IF NOT EXISTS idx_edges_parent ON subagent_edges(parent_thread_id);
     `);
+  }
+
+  async reset(): Promise<void> {
+    await mkdir(dirname(this.dbPath), { recursive: true });
+    await Promise.all([
+      rm(this.dbPath, { force: true }),
+      rm(`${this.dbPath}-wal`, { force: true }),
+      rm(`${this.dbPath}-shm`, { force: true }),
+    ]);
+    await this.initialize();
   }
 
   async clear(): Promise<void> {
